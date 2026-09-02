@@ -6,7 +6,10 @@ use Laravel\Fortify\Features;
 test('login screen can be rendered', function () {
     $response = $this->get(route('login'));
 
-    $response->assertOk();
+    $response
+        ->assertOk()
+        ->assertSee('Continue with Microsoft')
+        ->assertDontSee('name="password"', false);
 });
 
 test('users can authenticate using the login screen', function () {
