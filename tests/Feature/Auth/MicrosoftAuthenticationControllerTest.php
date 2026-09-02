@@ -12,7 +12,7 @@ test('guests are redirected to Microsoft for authentication', function () {
     $response->assertRedirect('https://socialite.fake/microsoft/authorize');
 });
 
-test('Microsoft creates and authenticates a new user with a personal team', function () {
+test('Microsoft creates and authenticates a new user', function () {
     Socialite::fake('microsoft', SocialiteUser::fake([
         'id' => 'microsoft-user-123',
         'name' => 'Alex Morgan',
@@ -23,13 +23,11 @@ test('Microsoft creates and authenticates a new user with a personal team', func
 
     $user = User::query()->where('microsoft_id', 'microsoft-user-123')->firstOrFail();
 
-    $response->assertRedirect('/alex-morgans-team/dashboard');
+    $response->assertRedirect('/dashboard');
     $this->assertAuthenticatedAs($user);
     expect($user)
         ->email->toBe('alex.morgan@example.com')
-        ->email_verified_at->not->toBeNull()
-        ->and($user->personalTeam())->not->toBeNull()
-        ->and($user->current_team_id)->toBe($user->personalTeam()?->id);
+        ->email_verified_at->not->toBeNull();
 });
 
 test('Microsoft links and authenticates an existing user by email', function () {
@@ -46,7 +44,7 @@ test('Microsoft links and authenticates an existing user by email', function () 
 
     $response = $this->get(route('microsoft.callback'));
 
-    $response->assertRedirect('/'.$user->currentTeam->slug.'/dashboard');
+    $response->assertRedirect('/dashboard');
     $this->assertAuthenticatedAs($user);
     expect($user->fresh())
         ->microsoft_id->toBe('microsoft-user-123')
@@ -67,7 +65,7 @@ test('Microsoft authenticates an already linked user by provider id', function (
 
     $response = $this->get(route('microsoft.callback'));
 
-    $response->assertRedirect('/'.$user->currentTeam->slug.'/dashboard');
+    $response->assertRedirect('/dashboard');
     $this->assertAuthenticatedAs($user);
     expect($user->fresh()->email)->toBe('old@example.com');
 });

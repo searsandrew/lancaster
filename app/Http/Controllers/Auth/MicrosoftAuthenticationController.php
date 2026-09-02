@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Auth;
 
-use App\Actions\Teams\CreateTeam;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -28,7 +27,7 @@ class MicrosoftAuthenticationController extends Controller
     /**
      * Authenticate the user returned by Microsoft.
      */
-    public function callback(Request $request, CreateTeam $createTeam, LoginResponse $loginResponse): Response
+    public function callback(Request $request, LoginResponse $loginResponse): Response
     {
         if ($request->filled('error')) {
             return redirect()->route('login')->withErrors([
@@ -49,7 +48,7 @@ class MicrosoftAuthenticationController extends Controller
         $email = Str::lower($email);
         $name = $microsoftUser->getName() ?: Str::before($email, '@');
 
-        $user = DB::transaction(function () use ($createTeam, $email, $microsoftId, $name): User {
+        $user = DB::transaction(function () use ($email, $microsoftId, $name): User {
             $user = User::query()->where('microsoft_id', $microsoftId)->first();
 
             if ($user) {
@@ -86,8 +85,6 @@ class MicrosoftAuthenticationController extends Controller
                 'email_verified_at' => now(),
                 'password' => Str::random(64),
             ]);
-
-            $createTeam->handle($user, $user->name."'s Team", isPersonal: true);
 
             return $user;
         });

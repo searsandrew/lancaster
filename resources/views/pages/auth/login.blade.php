@@ -5,11 +5,6 @@
         <!-- Session Status -->
         <x-auth-session-status class="text-center" :status="session('status')" />
 
-        @if ($teamInvitation)
-            <x-team-invitation-alert :invitation="$teamInvitation" :action="__('Log in')" />
-        @endif
-
-
         <flux:button
             variant="primary"
             :href="route('microsoft.redirect')"

@@ -4,7 +4,6 @@ namespace App\Providers;
 
 use App\Actions\Fortify\ResetUserPassword;
 use App\Http\Responses\LoginResponse;
-use App\Models\TeamInvitation;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -46,9 +45,7 @@ class FortifyServiceProvider extends ServiceProvider
      */
     private function configureViews(): void
     {
-        Fortify::loginView(fn (Request $request) => view('pages::auth.login', [
-            'teamInvitation' => $this->teamInvitation($request),
-        ]));
+        Fortify::loginView(fn () => view('pages::auth.login'));
         Fortify::resetPasswordView(fn () => view('pages::auth.reset-password'));
         Fortify::requestPasswordResetLinkView(fn () => view('pages::auth.forgot-password'));
     }
@@ -65,37 +62,5 @@ class FortifyServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($throttleKey);
         });
 
-    }
-
-    /**
-     * Get the pending team invitation context for auth pages.
-     *
-     * @return array{code: string, teamName: string}|null
-     */
-    private function teamInvitation(Request $request): ?array
-    {
-        $invitationCode = $request->query('invitation');
-
-        if (! is_string($invitationCode)) {
-            return null;
-        }
-
-        $invitation = TeamInvitation::query()
-            ->with('team')
-            ->where('code', $invitationCode)
-            ->whereNull('accepted_at')
-            ->where(fn ($query) => $query
-                ->whereNull('expires_at')
-                ->orWhere('expires_at', '>=', now()))
-            ->first();
-
-        if (! $invitation) {
-            return null;
-        }
-
-        return [
-            'code' => $invitation->code,
-            'teamName' => $invitation->team->name,
-        ];
     }
 }
