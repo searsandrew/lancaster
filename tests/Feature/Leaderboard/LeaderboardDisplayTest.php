@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\LeaderboardDisplayMode;
 use App\Models\Participant;
 use App\Models\Question;
 use App\Models\Quiz;
@@ -131,7 +132,10 @@ test('quiz-specific leaderboard information is escaped', function () {
 
 test('the initial leaderboard load does not celebrate existing results', function () {
     $show = Show::factory()->active()->create();
-    $quiz = Quiz::factory()->for($show)->summary(10)->create();
+    $quiz = Quiz::factory()->for($show)->summary(10)->create([
+        'confetti_flash_sequence' => 2,
+        'perfect_score_flash_sequence' => 3,
+    ]);
     $staff = User::factory()->create();
     $participant = Participant::factory()->for($show)->create();
     QuizEntry::factory()->for($participant)->for($quiz)->for($staff, 'staffUser')->completed(10)->create();
@@ -139,6 +143,50 @@ test('the initial leaderboard load does not celebrate existing results', functio
     Livewire::test('pages::leaderboard')
         ->assertNotDispatched('leaderboard-confetti')
         ->assertNotDispatched('perfect-score');
+});
+
+test('staff flash commands are dispatched on the next leaderboard refresh', function () {
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->summary()->create([
+        'perfect_score_image_path' => 'perfect-score-images/sticker.png',
+    ]);
+    $component = Livewire::test('pages::leaderboard');
+
+    $quiz->increment('confetti_flash_sequence');
+    $quiz->increment('perfect_score_flash_sequence');
+
+    $component
+        ->call('refreshShow')
+        ->assertDispatched('leaderboard-confetti')
+        ->assertDispatched(
+            'perfect-score',
+            name: 'Perfect score!',
+            imageUrl: Storage::disk('public')->url('perfect-score-images/sticker.png'),
+        );
+});
+
+test('the QR display links to the public registration page', function () {
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create([
+        'leaderboard_display_mode' => LeaderboardDisplayMode::QrCode,
+    ]);
+
+    Livewire::test('pages::leaderboard')
+        ->assertSee('Scan to join the quiz')
+        ->assertSee(route('home'))
+        ->assertSee('data:image/svg+xml;base64,', false);
+});
+
+test('the configured advertisement is embedded over the leaderboard', function () {
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create([
+        'leaderboard_display_mode' => LeaderboardDisplayMode::Advertisement,
+        'advertisement_embed_url' => 'https://www.youtube.com/embed/example?autoplay=1',
+    ]);
+
+    Livewire::test('pages::leaderboard')
+        ->assertSee('https://www.youtube.com/embed/example?autoplay=1', false)
+        ->assertSee('Quiz advertisement');
 });
 
 test('a new number one triggers a confetti burst', function () {

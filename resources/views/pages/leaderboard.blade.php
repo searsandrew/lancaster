@@ -1,8 +1,13 @@
 <?php
 
 use App\Enums\QuizScoringMode;
+use App\Enums\LeaderboardDisplayMode;
 use App\Models\QuizEntry;
 use App\Models\Show;
+use BaconQrCode\Renderer\Image\SvgImageBackEnd;
+use BaconQrCode\Renderer\ImageRenderer;
+use BaconQrCode\Renderer\RendererStyle\RendererStyle;
+use BaconQrCode\Writer;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
@@ -16,6 +21,8 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
     public ?int $leaderId = null;
     /** @var array<int, int> */
     public array $knownPerfectEntryIds = [];
+    public int $knownConfettiFlashSequence = 0;
+    public int $knownPerfectScoreFlashSequence = 0;
 
     public function mount(): void
     {
@@ -32,6 +39,8 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
         if (! $this->show?->quiz) {
             $this->leaderId = null;
             $this->knownPerfectEntryIds = [];
+            $this->knownConfettiFlashSequence = 0;
+            $this->knownPerfectScoreFlashSequence = 0;
 
             return;
         }
@@ -47,6 +56,20 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
         $perfectEntryIds = $perfectEntries->modelKeys();
 
         if ($celebrate && $previousShowId === $this->show->id) {
+            if ($this->show->quiz->confetti_flash_sequence > $this->knownConfettiFlashSequence) {
+                $this->dispatch('leaderboard-confetti');
+            }
+
+            if ($this->show->quiz->perfect_score_flash_sequence > $this->knownPerfectScoreFlashSequence) {
+                $this->dispatch(
+                    'perfect-score',
+                    name: __('Perfect score!'),
+                    imageUrl: $this->show->quiz->perfect_score_image_path
+                        ? Storage::disk('public')->url($this->show->quiz->perfect_score_image_path)
+                        : null,
+                );
+            }
+
             if ($leader && $leader->id !== $this->leaderId) {
                 $this->dispatch('leaderboard-confetti');
             }
@@ -68,6 +91,8 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
 
         $this->leaderId = $leader?->id;
         $this->knownPerfectEntryIds = $perfectEntryIds;
+        $this->knownConfettiFlashSequence = $this->show->quiz->confetti_flash_sequence;
+        $this->knownPerfectScoreFlashSequence = $this->show->quiz->perfect_score_flash_sequence;
     }
 
     /** @return Collection<int, QuizEntry> */
@@ -111,6 +136,18 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
         return $this->show?->quiz?->entries()
             ->whereNotNull('completed_at')
             ->count() ?? 0;
+    }
+
+    #[Computed]
+    public function registrationQrCode(): string
+    {
+        $renderer = new ImageRenderer(
+            new RendererStyle(600, 4),
+            new SvgImageBackEnd,
+        );
+        $svg = (new Writer($renderer))->writeString(route('home'));
+
+        return 'data:image/svg+xml;base64,'.base64_encode($svg);
     }
 
     public function formattedTime(int $milliseconds): string
@@ -161,7 +198,7 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
     x-on:perfect-score.window="showPerfectScore($event.detail)"
     class="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(39,39,42,0.8),_rgb(9,9,11)_58%)] px-8 pb-32 pt-10 lg:px-16 lg:pb-36 lg:pt-12"
 >
-    <div class="pointer-events-none fixed inset-0 z-50 overflow-hidden" aria-hidden="true">
+    <div class="pointer-events-none fixed inset-0 z-[60] overflow-hidden" aria-hidden="true">
         <template x-for="piece in confetti" :key="piece.id">
             <span
                 class="leaderboard-confetti absolute left-1/2 top-0 h-4 w-2 rounded-sm"
@@ -169,6 +206,33 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
             ></span>
         </template>
     </div>
+
+    @if ($show?->quiz?->leaderboard_display_mode === LeaderboardDisplayMode::QrCode)
+        <div class="fixed inset-0 z-40 flex items-center justify-center bg-zinc-950 p-12 text-center">
+            <div class="flex max-w-4xl flex-col items-center gap-7">
+                <div class="text-sm font-black uppercase tracking-[0.45em] text-amber-400">{{ $show->name }}</div>
+                <h2 class="text-5xl font-black tracking-tight text-white lg:text-7xl">{{ __('Scan to join the quiz') }}</h2>
+                <div class="rounded-3xl bg-white p-6 shadow-2xl">
+                    <img src="{{ $this->registrationQrCode }}" alt="{{ __('QR code for quiz registration') }}" class="size-[min(55vh,34rem)]" />
+                </div>
+                <div class="text-2xl font-semibold text-zinc-300">{{ route('home') }}</div>
+            </div>
+        </div>
+    @elseif ($show?->quiz?->leaderboard_display_mode === LeaderboardDisplayMode::Advertisement && $show->quiz->advertisement_embed_url)
+        <div class="fixed inset-0 z-40 flex items-center justify-center bg-black p-8">
+            <div class="aspect-video max-h-full w-full max-w-[90rem] overflow-hidden rounded-2xl bg-zinc-950 shadow-2xl">
+                <iframe
+                    wire:key="advertisement-{{ md5($show->quiz->advertisement_embed_url) }}"
+                    src="{{ $show->quiz->advertisement_embed_url }}"
+                    title="{{ __('Quiz advertisement') }}"
+                    class="size-full border-0"
+                    allow="autoplay; encrypted-media; picture-in-picture"
+                    sandbox="allow-scripts allow-same-origin allow-presentation"
+                    allowfullscreen
+                ></iframe>
+            </div>
+        </div>
+    @endif
 
     <div
         x-cloak
@@ -179,7 +243,7 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
         x-transition:leave="transition duration-500 ease-in"
         x-transition:leave-start="scale-100 opacity-100"
         x-transition:leave-end="scale-110 opacity-0"
-        class="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-zinc-950/90 p-12 text-center"
+        class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/90 p-12 text-center"
         aria-live="polite"
     >
         <div class="flex max-w-5xl flex-col items-center gap-7">

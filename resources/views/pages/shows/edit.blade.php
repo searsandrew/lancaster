@@ -31,6 +31,7 @@ new #[Title('Configure show')] class extends Component {
     public ?TemporaryUploadedFile $registrationImage = null;
     public ?TemporaryUploadedFile $perfectScoreImage = null;
     public string $leaderboardMessage = '';
+    public string $advertisementEmbedUrl = '';
     public string $newQuestion = '';
     /** @var array<int, string> */
     public array $questionPrompts = [];
@@ -49,6 +50,7 @@ new #[Title('Configure show')] class extends Component {
         $this->maximumScore = $show->quiz->maximum_score;
         $this->registrationMessage = $show->quiz->registration_message ?? '';
         $this->leaderboardMessage = $show->quiz->leaderboard_message ?? '';
+        $this->advertisementEmbedUrl = $show->quiz->advertisement_embed_url ?? '';
         $this->refreshQuestions();
     }
 
@@ -88,6 +90,7 @@ new #[Title('Configure show')] class extends Component {
                 'registration_image_path' => $registrationImagePath ?? $this->show->quiz->registration_image_path,
                 'perfect_score_image_path' => $perfectScoreImagePath ?? $this->show->quiz->perfect_score_image_path,
                 'leaderboard_message' => trim($validated['leaderboardMessage']) ?: null,
+                'advertisement_embed_url' => trim($validated['advertisementEmbedUrl']) ?: null,
             ]);
         });
 
@@ -169,6 +172,7 @@ new #[Title('Configure show')] class extends Component {
             'registrationImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'perfectScoreImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'leaderboardMessage' => ['nullable', 'string', 'max:160'],
+            'advertisementEmbedUrl' => ['nullable', 'string', 'url', 'starts_with:https://', 'max:2048'],
         ];
     }
 
@@ -291,6 +295,14 @@ new #[Title('Configure show')] class extends Component {
                 :description="__('Optional quiz-specific information shown in the bottom bar.')"
                 rows="2"
                 maxlength="160"
+            />
+
+            <flux:input
+                wire:model="advertisementEmbedUrl"
+                type="url"
+                :label="__('Advertisement embed URL')"
+                :description="__('Optional HTTPS embed URL shown when staff selects Play Ad. Use an autoplay-enabled URL from the video provider.')"
+                placeholder="https://www.youtube.com/embed/...?autoplay=1"
             />
 
             <flux:separator />

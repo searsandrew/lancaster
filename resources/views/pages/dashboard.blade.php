@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\QuizScoringMode;
+use App\Enums\LeaderboardDisplayMode;
 use App\Models\Participant;
 use App\Models\QuizEntry;
 use App\Models\Show;
@@ -30,10 +31,46 @@ new #[Title('Dashboard')] class extends Component
     public string $participantLastName = '';
     public string $participantEmail = '';
     public bool $participantMarketingOptIn = true;
+    public string $leaderboardDisplayMode = LeaderboardDisplayMode::Leaderboard->value;
 
     public function mount(): void
     {
         $this->show = $this->currentShow();
+        $this->leaderboardDisplayMode = $this->show?->quiz?->leaderboard_display_mode->value
+            ?? LeaderboardDisplayMode::Leaderboard->value;
+    }
+
+    public function setLeaderboardDisplayMode(string $displayMode): void
+    {
+        $show = $this->currentShow();
+        $mode = LeaderboardDisplayMode::tryFrom($displayMode);
+
+        abort_unless($show?->quiz && $mode, 404);
+
+        if ($mode === LeaderboardDisplayMode::Advertisement && ! $show->quiz->advertisement_embed_url) {
+            return;
+        }
+
+        $show->quiz->update(['leaderboard_display_mode' => $mode]);
+        $this->leaderboardDisplayMode = $mode->value;
+    }
+
+    public function flashConfetti(): void
+    {
+        $show = $this->currentShow();
+        abort_unless($show?->quiz, 404);
+
+        $show->quiz->increment('confetti_flash_sequence');
+        Flux::toast(variant: 'success', text: __('Confetti sent to the leaderboard.'));
+    }
+
+    public function flashPerfectScore(): void
+    {
+        $show = $this->currentShow();
+        abort_unless($show?->quiz, 404);
+
+        $show->quiz->increment('perfect_score_flash_sequence');
+        Flux::toast(variant: 'success', text: __('Perfect score alert sent to the leaderboard.'));
     }
 
     /** @return Collection<int, Participant> */
@@ -350,22 +387,37 @@ new #[Title('Dashboard')] class extends Component
             <flux:subheading>{{ __('Manage and run the quiz from this screen. Use the toggle and flash commands to control the leaderboard screen. Entrants can be reset, removed, and edited from their contextual menu.') }}</flux:subheading>
         </div>
 
-        <flux:dropdown position="bottom" align="end">
-            <flux:button icon:trailing="megaphone" />
-            <flux:menu>
-                <flux:menu.group :heading="__('Toggle')">
-                    <flux:menu.item icon="qr-code">{{ __('QR Code') }}</flux:menu.item>
-                    <flux:menu.item icon="radio">{{ __('Play Ad') }}</flux:menu.item>
-                </flux:menu.group>
-                <flux:menu.group :heading="__('Flash')">
-                    <flux:menu.item icon="sparkles">{{ __('Confetti') }}</flux:menu.item>
-                    <flux:menu.item icon="trophy">{{ __('Perfect Score') }}</flux:menu.item>
-                </flux:menu.group>
-            </flux:menu>
-        </flux:dropdown>
-        <flux:button :href="route('leaderboard')" icon="arrow-top-right-on-square" target="_blank">
-            {{ __('Leaderboard') }}
-        </flux:button>
+        <flux:tooltip position:bottom :content="__('Flash Confetti')">
+            <flux:button type="button" icon="sparkles" wire:click="flashConfetti" :disabled="! $show" :aria-label="__('Flash Confetti')" />
+        </flux:tooltip>
+        <flux:tooltip position:bottom :content="__('Flash Perfect Score')">
+            <flux:button type="button" icon="trophy" wire:click="flashPerfectScore" :disabled="! $show" :aria-label="__('Flash Perfect Score')" />
+        </flux:tooltip>
+        <flux:button.group>
+            <flux:button :href="route('leaderboard')" icon="arrow-top-right-on-square" target="_blank">
+                {{ __('Leaderboard') }}
+            </flux:button>
+            <flux:dropdown position="bottom" align="end">
+                <flux:button icon="chevron-down"></flux:button>
+                <flux:menu>
+                    <flux:menu.radio.group>
+                        <flux:menu.radio
+                            :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::Leaderboard->value"
+                            wire:click="setLeaderboardDisplayMode('leaderboard')"
+                        >{{ __('Leaderboard') }}</flux:menu.radio>
+                        <flux:menu.radio
+                            :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::QrCode->value"
+                            wire:click="setLeaderboardDisplayMode('qr_code')"
+                        >{{ __('QR Code') }}</flux:menu.radio>
+                        <flux:menu.radio
+                            :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::Advertisement->value"
+                            :disabled="! $show?->quiz?->advertisement_embed_url"
+                            wire:click="setLeaderboardDisplayMode('advertisement')"
+                        >{{ __('Play Ad') }}</flux:menu.radio>
+                    </flux:menu.radio.group>
+                </flux:menu>
+            </flux:dropdown>
+        </flux:button.group>
     </div>
 
     @if (! $show)

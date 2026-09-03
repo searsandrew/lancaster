@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\LeaderboardDisplayMode;
 use App\Enums\QuizScoringMode;
 use App\Models\Quiz;
 use App\Models\Show;
@@ -23,6 +24,9 @@ class QuizFactory extends Factory
             'show_id' => Show::factory(),
             'scoring_mode' => QuizScoringMode::PerAnswer,
             'maximum_score' => null,
+            'leaderboard_display_mode' => LeaderboardDisplayMode::Leaderboard,
+            'confetti_flash_sequence' => 0,
+            'perfect_score_flash_sequence' => 0,
         ];
     }
 

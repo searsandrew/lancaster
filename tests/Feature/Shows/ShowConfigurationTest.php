@@ -46,6 +46,7 @@ test('staff can update show and summary scoring configuration', function () {
         ->set('maximumScore', 25)
         ->set('registrationMessage', 'Your email creates an account on example.com.')
         ->set('leaderboardMessage', 'Sticker pickup at booth 412')
+        ->set('advertisementEmbedUrl', 'https://www.youtube.com/embed/example?autoplay=1')
         ->call('save')
         ->assertHasNoErrors();
 
@@ -62,7 +63,20 @@ test('staff can update show and summary scoring configuration', function () {
         ->and($quiz->maximum_score)->toBe(25)
         ->and($quiz->registration_message)->toBe('Your email creates an account on example.com.')
         ->and($quiz->leaderboard_message)->toBe('Sticker pickup at booth 412')
+        ->and($quiz->advertisement_embed_url)->toBe('https://www.youtube.com/embed/example?autoplay=1')
         ->and($question->fresh())->not->toBeNull();
+});
+
+test('advertisement embed URLs must use HTTPS', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    Quiz::factory()->for($show)->summary()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('advertisementEmbedUrl', 'http://www.youtube.com/embed/example')
+        ->call('save')
+        ->assertHasErrors(['advertisementEmbedUrl']);
 });
 
 test('leaderboard messages are limited to the available display space', function () {
