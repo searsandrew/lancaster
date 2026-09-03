@@ -44,6 +44,7 @@ test('staff can update show and summary scoring configuration', function () {
         ->set('endTime', '17:00')
         ->set('scoringMode', 'summary')
         ->set('maximumScore', 25)
+        ->set('registrationMessage', 'Your email creates an account on example.com.')
         ->set('leaderboardMessage', 'Sticker pickup at booth 412')
         ->call('save')
         ->assertHasNoErrors();
@@ -59,6 +60,7 @@ test('staff can update show and summary scoring configuration', function () {
         ->and($show->ends_at?->format('Y-m-d H:i'))->toBe('2026-10-10 17:00')
         ->and($quiz->scoring_mode)->toBe(QuizScoringMode::Summary)
         ->and($quiz->maximum_score)->toBe(25)
+        ->and($quiz->registration_message)->toBe('Your email creates an account on example.com.')
         ->and($quiz->leaderboard_message)->toBe('Sticker pickup at booth 412')
         ->and($question->fresh())->not->toBeNull();
 });
@@ -142,6 +144,41 @@ test('staff can upload perfect score artwork for a quiz', function () {
 
     expect($imagePath)->toStartWith('perfect-score-images/');
     Storage::disk('public')->assertExists($imagePath);
+});
+
+test('staff can upload registration artwork for a quiz', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->summary()->create();
+    $image = UploadedFile::fake()->image('registration.png', 1200, 800);
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('registrationImage', $image)
+        ->call('save')
+        ->assertHasNoErrors();
+
+    $imagePath = $quiz->fresh()->registration_image_path;
+
+    expect($imagePath)->toStartWith('registration-images/');
+    Storage::disk('public')->assertExists($imagePath);
+});
+
+test('registration artwork must be a supported image', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    Quiz::factory()->for($show)->summary()->create();
+    $file = UploadedFile::fake()->create('details.txt', 20, 'text/plain');
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('registrationImage', $file)
+        ->call('save')
+        ->assertHasErrors(['registrationImage']);
+
+    Storage::disk('public')->assertDirectoryEmpty('registration-images');
 });
 
 test('perfect score artwork must be a supported image', function () {

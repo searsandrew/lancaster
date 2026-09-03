@@ -2,6 +2,7 @@
 
 use App\Models\Show;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -65,7 +66,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
 
     private function currentShow(): ?Show
     {
-        $activeShows = Show::query()->activeAt()->limit(2)->get();
+        $activeShows = Show::query()->activeAt()->with('quiz')->limit(2)->get();
 
         return $activeShows->count() === 1 ? $activeShows->first() : null;
     }
@@ -86,6 +87,24 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
             <flux:heading size="xl">{{ __('Join the quiz') }}</flux:heading>
             <flux:text>{{ $show->name }}</flux:text>
         </div>
+
+        @if ($show->quiz?->registration_image_path || $show->quiz?->registration_message)
+            <div class="space-y-4">
+                @if ($show->quiz?->registration_image_path)
+                    <img
+                        src="{{ Storage::disk('public')->url($show->quiz->registration_image_path) }}"
+                        alt="{{ __('Quiz registration information') }}"
+                        class="mx-auto max-h-64 w-full rounded-xl object-contain"
+                    />
+                @endif
+
+                @if ($show->quiz?->registration_message)
+                    <flux:callout>
+                        <div class="whitespace-pre-line text-sm">{{ $show->quiz->registration_message }}</div>
+                    </flux:callout>
+                @endif
+            </div>
+        @endif
 
         <form wire:submit="register" class="flex flex-col gap-6">
             <div class="grid gap-6 sm:grid-cols-2">

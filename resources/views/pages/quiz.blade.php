@@ -13,7 +13,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Title('Run quiz')] class extends Component
+new #[Title('Staff dashboard')] class extends Component
 {
     public ?Show $show = null;
     public string $search = '';
@@ -145,7 +145,7 @@ new #[Title('Run quiz')] class extends Component
         ]);
 
         $this->editingParticipantId = null;
-        unset($this->participants);
+        unset($this->participants, $this->entry);
         Flux::modal('edit-participant')->close();
         Flux::toast(variant: 'success', text: __('Contestant updated.'));
     }
@@ -346,7 +346,7 @@ new #[Title('Run quiz')] class extends Component
 <section class="w-full space-y-6">
     <div class="flex items-start justify-between gap-4">
         <div>
-            <flux:heading size="xl">{{ __('Run quiz') }}</flux:heading>
+            <flux:heading size="xl">{{ __('Staff dashboard') }}</flux:heading>
             <flux:subheading>{{ $show ? $show->name : __('No single active show') }}</flux:subheading>
         </div>
         <flux:button :href="route('leaderboard')" target="_blank" variant="ghost">
@@ -368,6 +368,21 @@ new #[Title('Run quiz')] class extends Component
                     @endif
                 </div>
                 <flux:text>{{ $this->entry->participant->email }}</flux:text>
+                <div class="mt-3">
+                    @if ($this->entry->participant->marketing_opt_in)
+                        <flux:badge color="green" icon="check-circle">{{ __('Email signup accepted') }}</flux:badge>
+                    @else
+                        <flux:callout variant="warning" icon="envelope">
+                            <flux:callout.heading>{{ __('Email signup declined') }}</flux:callout.heading>
+                            <flux:callout.text>{{ __('If they reconsider, update their consent before completing the quiz.') }}</flux:callout.text>
+                            <x-slot name="actions">
+                                <flux:button type="button" size="sm" wire:click="editParticipant({{ $this->entry->participant->id }})">
+                                    {{ __('Update consent') }}
+                                </flux:button>
+                            </x-slot>
+                        </flux:callout>
+                    @endif
+                </div>
             </div>
 
             <form wire:submit="complete" class="space-y-6">
@@ -417,6 +432,7 @@ new #[Title('Run quiz')] class extends Component
                     <flux:table.columns>
                         <flux:table.column>{{ __('Participant') }}</flux:table.column>
                         <flux:table.column>{{ __('Registered') }}</flux:table.column>
+                        <flux:table.column>{{ __('Email signup') }}</flux:table.column>
                         <flux:table.column>{{ __('Status') }}</flux:table.column>
                         <flux:table.column></flux:table.column>
                     </flux:table.columns>
@@ -428,6 +444,11 @@ new #[Title('Run quiz')] class extends Component
                                     <div class="text-sm text-zinc-500">{{ $participant->email }}</div>
                                 </flux:table.cell>
                                 <flux:table.cell>{{ $participant->created_at->diffForHumans() }}</flux:table.cell>
+                                <flux:table.cell>
+                                    <flux:badge :color="$participant->marketing_opt_in ? 'green' : 'red'" size="sm">
+                                        {{ $participant->marketing_opt_in ? __('Accepted') : __('Declined') }}
+                                    </flux:badge>
+                                </flux:table.cell>
                                 <flux:table.cell>
                                     <flux:badge :color="$participant->quizEntry?->completed_at ? 'green' : ($participant->quizEntry ? 'amber' : 'zinc')" size="sm">
                                         {{ $participant->quizEntry?->completed_at ? __('Completed') : ($participant->quizEntry ? __('In progress') : __('Waiting')) }}

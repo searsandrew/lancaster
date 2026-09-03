@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Participant;
+use App\Models\Quiz;
 use App\Models\Show;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 test('registration is unavailable when there is no active show', function () {
@@ -134,4 +136,28 @@ test('participant names are escaped on the confirmation screen', function () {
         ->call('register')
         ->assertSee('<script>alert("quiz")</script>')
         ->assertDontSee('<script>alert("quiz")</script>', false);
+});
+
+test('quiz-specific information and artwork appear on registration', function () {
+    Storage::fake('public');
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create([
+        'registration_message' => 'Your email creates an account on example.com.',
+        'registration_image_path' => 'registration-images/details.png',
+    ]);
+
+    Livewire::test('pages::register')
+        ->assertSee('Your email creates an account on example.com.')
+        ->assertSee(Storage::disk('public')->url('registration-images/details.png'), false);
+});
+
+test('quiz-specific registration information is escaped', function () {
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create([
+        'registration_message' => '<script>alert("registration")</script>',
+    ]);
+
+    Livewire::test('pages::register')
+        ->assertSee('<script>alert("registration")</script>')
+        ->assertDontSee('<script>alert("registration")</script>', false);
 });

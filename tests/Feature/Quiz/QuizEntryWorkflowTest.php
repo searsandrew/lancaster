@@ -207,7 +207,7 @@ test('staff can edit contestant details', function () {
         'first_name' => 'Ada',
         'last_name' => 'Lovelace',
         'email' => 'ada@example.com',
-        'marketing_opt_in' => true,
+        'marketing_opt_in' => false,
     ]);
 
     Livewire::actingAs($user)
@@ -216,7 +216,7 @@ test('staff can edit contestant details', function () {
         ->set('participantFirstName', '  Grace ')
         ->set('participantLastName', ' Hopper  ')
         ->set('participantEmail', 'GRACE@EXAMPLE.COM ')
-        ->set('participantMarketingOptIn', false)
+        ->set('participantMarketingOptIn', true)
         ->call('saveParticipant')
         ->assertHasNoErrors();
 
@@ -224,7 +224,48 @@ test('staff can edit contestant details', function () {
         ->first_name->toBe('Grace')
         ->last_name->toBe('Hopper')
         ->email->toBe('grace@example.com')
-        ->marketing_opt_in->toBeFalse();
+        ->marketing_opt_in->toBeTrue();
+});
+
+test('staff can see email signup consent in the participant queue', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create();
+    Participant::factory()->for($show)->create([
+        'first_name' => 'Ada',
+        'marketing_opt_in' => true,
+    ]);
+    Participant::factory()->for($show)->create([
+        'first_name' => 'Grace',
+        'marketing_opt_in' => false,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::quiz')
+        ->assertSee('Email signup')
+        ->assertSee('Accepted')
+        ->assertSee('Declined');
+});
+
+test('staff can update declined email consent while running a quiz', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->summary()->create();
+    $participant = Participant::factory()->for($show)->create([
+        'marketing_opt_in' => false,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::quiz')
+        ->call('start', $participant->id)
+        ->assertSee('Email signup declined')
+        ->call('editParticipant', $participant->id)
+        ->set('participantMarketingOptIn', true)
+        ->call('saveParticipant')
+        ->assertHasNoErrors()
+        ->assertSee('Email signup accepted');
+
+    expect($participant->refresh()->marketing_opt_in)->toBeTrue();
 });
 
 test('contestant email must remain unique within the show', function () {

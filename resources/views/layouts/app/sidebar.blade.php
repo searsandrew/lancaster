@@ -19,7 +19,7 @@
                         {{ __('Shows') }}
                     </flux:sidebar.item>
                     <flux:sidebar.item icon="clipboard-document-check" :href="route('quiz.index')" :current="request()->routeIs('quiz.*')" wire:navigate>
-                        {{ __('Run quiz') }}
+                        {{ __('Staff dashboard') }}
                     </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>

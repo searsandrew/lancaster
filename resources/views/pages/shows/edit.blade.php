@@ -27,6 +27,8 @@ new #[Title('Configure show')] class extends Component {
     public ?string $endTime = null;
     public string $scoringMode;
     public ?int $maximumScore = null;
+    public string $registrationMessage = '';
+    public ?TemporaryUploadedFile $registrationImage = null;
     public ?TemporaryUploadedFile $perfectScoreImage = null;
     public string $leaderboardMessage = '';
     public string $newQuestion = '';
@@ -45,6 +47,7 @@ new #[Title('Configure show')] class extends Component {
         $this->endTime = $show->ends_at?->format('H:i');
         $this->scoringMode = $show->quiz->scoring_mode->value;
         $this->maximumScore = $show->quiz->maximum_score;
+        $this->registrationMessage = $show->quiz->registration_message ?? '';
         $this->leaderboardMessage = $show->quiz->leaderboard_message ?? '';
         $this->refreshQuestions();
     }
@@ -65,10 +68,12 @@ new #[Title('Configure show')] class extends Component {
             return;
         }
 
-        $previousImagePath = $this->show->quiz->perfect_score_image_path;
+        $previousRegistrationImagePath = $this->show->quiz->registration_image_path;
+        $registrationImagePath = $this->registrationImage?->store('registration-images', 'public');
+        $previousPerfectScoreImagePath = $this->show->quiz->perfect_score_image_path;
         $perfectScoreImagePath = $this->perfectScoreImage?->store('perfect-score-images', 'public');
 
-        DB::transaction(function () use ($validated, $startsAt, $endsAt, $perfectScoreImagePath): void {
+        DB::transaction(function () use ($validated, $startsAt, $endsAt, $registrationImagePath, $perfectScoreImagePath): void {
             $this->show->update([
                 'name' => $validated['name'],
                 'activation_mode' => $validated['activationMode'],
@@ -79,15 +84,22 @@ new #[Title('Configure show')] class extends Component {
             $this->show->quiz->update([
                 'scoring_mode' => $validated['scoringMode'],
                 'maximum_score' => $validated['scoringMode'] === 'summary' ? $validated['maximumScore'] : null,
+                'registration_message' => trim($validated['registrationMessage']) ?: null,
+                'registration_image_path' => $registrationImagePath ?? $this->show->quiz->registration_image_path,
                 'perfect_score_image_path' => $perfectScoreImagePath ?? $this->show->quiz->perfect_score_image_path,
                 'leaderboard_message' => trim($validated['leaderboardMessage']) ?: null,
             ]);
         });
 
-        if ($perfectScoreImagePath && $previousImagePath) {
-            Storage::disk('public')->delete($previousImagePath);
+        if ($registrationImagePath && $previousRegistrationImagePath) {
+            Storage::disk('public')->delete($previousRegistrationImagePath);
         }
 
+        if ($perfectScoreImagePath && $previousPerfectScoreImagePath) {
+            Storage::disk('public')->delete($previousPerfectScoreImagePath);
+        }
+
+        $this->registrationImage = null;
         $this->perfectScoreImage = null;
         $this->show->quiz->refresh();
 
@@ -153,6 +165,8 @@ new #[Title('Configure show')] class extends Component {
             'endTime' => [Rule::requiredIf($this->activationMode === 'scheduled'), 'nullable', 'date_format:H:i'],
             'scoringMode' => ['required', Rule::enum(QuizScoringMode::class)],
             'maximumScore' => [Rule::requiredIf($this->scoringMode === 'summary'), 'nullable', 'integer', 'min:1', 'max:65535'],
+            'registrationMessage' => ['nullable', 'string', 'max:2000'],
+            'registrationImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'perfectScoreImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'leaderboardMessage' => ['nullable', 'string', 'max:160'],
         ];
@@ -235,6 +249,39 @@ new #[Title('Configure show')] class extends Component {
                     <flux:error name="newQuestion" />
                 </div>
             @endif
+
+            <flux:separator />
+
+            <div class="space-y-4">
+                <div>
+                    <flux:heading>{{ __('Registration information') }}</flux:heading>
+                    <flux:text>{{ __('Add quiz-specific details or artwork for attendees to see before signing up.') }}</flux:text>
+                </div>
+
+                <flux:textarea
+                    wire:model="registrationMessage"
+                    :label="__('Registration message')"
+                    :description="__('Optional information shown above the registration form.')"
+                    rows="4"
+                    maxlength="2000"
+                />
+
+                @if ($show->quiz->registration_image_path)
+                    <img
+                        src="{{ Storage::disk('public')->url($show->quiz->registration_image_path) }}"
+                        alt="{{ __('Current registration artwork') }}"
+                        class="max-h-64 rounded-xl border border-zinc-200 object-contain dark:border-zinc-700"
+                    />
+                @endif
+
+                <flux:file-upload wire:model="registrationImage" :label="__('Registration image')">
+                    <flux:file-upload.dropzone
+                        :heading="__('Drop an image here or click to browse')"
+                        :text="__('JPG, PNG, or WebP up to 5 MB')"
+                        with-progress
+                    />
+                </flux:file-upload>
+            </div>
 
             <flux:separator />
 
