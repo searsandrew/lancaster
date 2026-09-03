@@ -24,4 +24,8 @@ Route::livewire('shows/{show}/edit', 'pages::shows.edit')
     ->middleware(['auth', 'verified'])
     ->name('shows.edit');
 
+Route::livewire('quiz', 'pages::quiz')
+    ->middleware(['auth', 'verified'])
+    ->name('quiz.index');
+
 require __DIR__.'/settings.php';

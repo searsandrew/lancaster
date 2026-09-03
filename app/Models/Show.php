@@ -34,6 +34,8 @@ class Show extends Model
 
     /**
      * Get the participants registered for this show.
+     *
+     * @return HasMany<Participant, $this>
      */
     public function participants(): HasMany
     {

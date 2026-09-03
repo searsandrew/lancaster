@@ -32,6 +32,12 @@ class Quiz extends Model
         return $this->hasMany(Question::class)->orderBy('position');
     }
 
+    /** @return HasMany<QuizEntry, $this> */
+    public function entries(): HasMany
+    {
+        return $this->hasMany(QuizEntry::class);
+    }
+
     /**
      * Get the attributes that should be cast.
      *
