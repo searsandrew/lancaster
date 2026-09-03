@@ -16,4 +16,8 @@ Route::view('dashboard', 'dashboard')
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
 
+Route::livewire('shows', 'pages::shows.index')
+    ->middleware(['auth', 'verified'])
+    ->name('shows.index');
+
 require __DIR__.'/settings.php';
