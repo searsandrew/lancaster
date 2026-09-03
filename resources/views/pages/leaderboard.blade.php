@@ -4,6 +4,7 @@ use App\Enums\QuizScoringMode;
 use App\Models\QuizEntry;
 use App\Models\Show;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -12,17 +13,61 @@ use Livewire\Component;
 new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
 {
     public ?Show $show = null;
+    public ?int $leaderId = null;
+    /** @var array<int, int> */
+    public array $knownPerfectEntryIds = [];
 
     public function mount(): void
     {
-        $this->refreshShow();
+        $this->refreshShow(false);
     }
 
-    public function refreshShow(): void
+    public function refreshShow(bool $celebrate = true): void
     {
+        $previousShowId = $this->show?->id;
         $activeShows = Show::query()->activeAt()->with('quiz')->limit(2)->get();
         $this->show = $activeShows->count() === 1 ? $activeShows->first() : null;
         unset($this->entries, $this->maximumScore);
+
+        if (! $this->show?->quiz) {
+            $this->leaderId = null;
+            $this->knownPerfectEntryIds = [];
+
+            return;
+        }
+
+        $leader = $this->entries->first();
+        $perfectEntries = $this->show->quiz->entries()
+            ->with('participant')
+            ->whereNotNull('completed_at')
+            ->where('score', $this->maximumScore)
+            ->oldest('completed_at')
+            ->oldest('id')
+            ->get();
+        $perfectEntryIds = $perfectEntries->modelKeys();
+
+        if ($celebrate && $previousShowId === $this->show->id) {
+            if ($leader && $leader->id !== $this->leaderId) {
+                $this->dispatch('leaderboard-confetti');
+            }
+
+            $newPerfectEntry = $perfectEntries
+                ->whereNotIn('id', $this->knownPerfectEntryIds)
+                ->last();
+
+            if ($newPerfectEntry) {
+                $this->dispatch(
+                    'perfect-score',
+                    name: $newPerfectEntry->participant->first_name.' '.$newPerfectEntry->participant->last_name,
+                    imageUrl: $this->show->quiz->perfect_score_image_path
+                        ? Storage::disk('public')->url($this->show->quiz->perfect_score_image_path)
+                        : null,
+                );
+            }
+        }
+
+        $this->leaderId = $leader?->id;
+        $this->knownPerfectEntryIds = $perfectEntryIds;
     }
 
     /** @return Collection<int, QuizEntry> */
@@ -74,7 +119,69 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
 };
 ?>
 
-<main wire:poll.3s="refreshShow" class="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(39,39,42,0.8),_rgb(9,9,11)_58%)] px-8 py-10 lg:px-16 lg:py-12">
+<main
+    wire:poll.3s="refreshShow"
+    x-data="{
+        confetti: [],
+        perfectScoreVisible: false,
+        perfectScoreName: '',
+        perfectScoreImage: null,
+        confettiTimer: null,
+        perfectScoreTimer: null,
+        burstConfetti() {
+            clearTimeout(this.confettiTimer)
+            const colors = ['#fbbf24', '#f97316', '#22c55e', '#38bdf8', '#e879f9', '#ffffff']
+            this.confetti = Array.from({ length: 90 }, (_, id) => ({
+                id: `${Date.now()}-${id}`,
+                color: colors[id % colors.length],
+                x: `${Math.round((Math.random() - 0.5) * 180)}vw`,
+                rotation: `${Math.round(Math.random() * 1080)}deg`,
+                delay: `${Math.random() * 0.35}s`,
+                duration: `${2.2 + Math.random() * 1.2}s`,
+            }))
+            this.confettiTimer = setTimeout(() => this.confetti = [], 3800)
+        },
+        showPerfectScore(detail) {
+            clearTimeout(this.perfectScoreTimer)
+            this.perfectScoreName = detail.name
+            this.perfectScoreImage = detail.imageUrl
+            this.perfectScoreVisible = true
+            this.perfectScoreTimer = setTimeout(() => this.perfectScoreVisible = false, 5000)
+        },
+    }"
+    x-on:leaderboard-confetti.window="burstConfetti()"
+    x-on:perfect-score.window="showPerfectScore($event.detail)"
+    class="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(39,39,42,0.8),_rgb(9,9,11)_58%)] px-8 py-10 lg:px-16 lg:py-12"
+>
+    <div class="pointer-events-none fixed inset-0 z-50 overflow-hidden" aria-hidden="true">
+        <template x-for="piece in confetti" :key="piece.id">
+            <span
+                class="leaderboard-confetti absolute left-1/2 top-0 h-4 w-2 rounded-sm"
+                :style="`--confetti-x: ${piece.x}; --confetti-rotation: ${piece.rotation}; background: ${piece.color}; animation-delay: ${piece.delay}; animation-duration: ${piece.duration}`"
+            ></span>
+        </template>
+    </div>
+
+    <div
+        x-cloak
+        x-show="perfectScoreVisible"
+        x-transition:enter="transition duration-500 ease-out"
+        x-transition:enter-start="scale-75 opacity-0"
+        x-transition:enter-end="scale-100 opacity-100"
+        x-transition:leave="transition duration-500 ease-in"
+        x-transition:leave-start="scale-100 opacity-100"
+        x-transition:leave-end="scale-110 opacity-0"
+        class="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-zinc-950/90 p-12 text-center"
+        aria-live="polite"
+    >
+        <div class="flex max-w-5xl flex-col items-center gap-7">
+            <img x-show="perfectScoreImage" :src="perfectScoreImage" alt="" class="max-h-[42vh] max-w-3xl object-contain drop-shadow-2xl" />
+            <div class="text-lg font-black uppercase tracking-[0.45em] text-amber-400">{{ __('Perfect score') }}</div>
+            <div class="text-6xl font-black tracking-tight text-white lg:text-8xl" x-text="perfectScoreName"></div>
+            <div class="text-2xl font-semibold text-zinc-300">{{ __('Come claim your perfect-score sticker!') }}</div>
+        </div>
+    </div>
+
     @if (! $show)
         <div class="flex min-h-[calc(100vh-5rem)] items-center justify-center text-center">
             <div class="space-y-5">
@@ -135,3 +242,22 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
         </div>
     @endif
 </main>
+
+<style>
+    [x-cloak] { display: none !important; }
+
+    .leaderboard-confetti {
+        animation-name: leaderboard-confetti-fall;
+        animation-timing-function: cubic-bezier(.15, .65, .35, 1);
+        animation-fill-mode: forwards;
+    }
+
+    @keyframes leaderboard-confetti-fall {
+        0% { transform: translate3d(0, -5vh, 0) rotate(0deg); opacity: 1; }
+        100% { transform: translate3d(var(--confetti-x), 105vh, 0) rotate(var(--confetti-rotation)); opacity: .15; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .leaderboard-confetti { display: none; }
+    }
+</style>

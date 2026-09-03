@@ -6,6 +6,7 @@ use App\Models\Quiz;
 use App\Models\QuizEntry;
 use App\Models\Show;
 use App\Models\User;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 test('the leaderboard is publicly accessible without an active show', function () {
@@ -110,4 +111,71 @@ test('participant names are escaped on the leaderboard', function () {
     Livewire::test('pages::leaderboard')
         ->assertSee('<script>alert("leaderboard")</script>')
         ->assertDontSee('<script>alert("leaderboard")</script>', false);
+});
+
+test('the initial leaderboard load does not celebrate existing results', function () {
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->summary(10)->create();
+    $staff = User::factory()->create();
+    $participant = Participant::factory()->for($show)->create();
+    QuizEntry::factory()->for($participant)->for($quiz)->for($staff, 'staffUser')->completed(10)->create();
+
+    Livewire::test('pages::leaderboard')
+        ->assertNotDispatched('leaderboard-confetti')
+        ->assertNotDispatched('perfect-score');
+});
+
+test('a new number one triggers a confetti burst', function () {
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->summary(10)->create();
+    $staff = User::factory()->create();
+    $leader = Participant::factory()->for($show)->create();
+    QuizEntry::factory()->for($leader)->for($quiz)->for($staff, 'staffUser')->completed(7, 20000)->create();
+    $component = Livewire::test('pages::leaderboard');
+
+    $newLeader = Participant::factory()->for($show)->create();
+    QuizEntry::factory()->for($newLeader)->for($quiz)->for($staff, 'staffUser')->completed(8, 30000)->create();
+
+    $component
+        ->call('refreshShow')
+        ->assertDispatched('leaderboard-confetti');
+});
+
+test('a result below first place does not trigger confetti', function () {
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->summary(10)->create();
+    $staff = User::factory()->create();
+    $leader = Participant::factory()->for($show)->create();
+    QuizEntry::factory()->for($leader)->for($quiz)->for($staff, 'staffUser')->completed(9, 20000)->create();
+    $component = Livewire::test('pages::leaderboard');
+
+    $challenger = Participant::factory()->for($show)->create();
+    QuizEntry::factory()->for($challenger)->for($quiz)->for($staff, 'staffUser')->completed(8, 10000)->create();
+
+    $component
+        ->call('refreshShow')
+        ->assertNotDispatched('leaderboard-confetti');
+});
+
+test('a new perfect score triggers the celebration with uploaded artwork', function () {
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->summary(10)->create([
+        'perfect_score_image_path' => 'perfect-score-images/sticker.png',
+    ]);
+    $staff = User::factory()->create();
+    $component = Livewire::test('pages::leaderboard');
+
+    $participant = Participant::factory()->for($show)->create([
+        'first_name' => 'Ada',
+        'last_name' => 'Lovelace',
+    ]);
+    QuizEntry::factory()->for($participant)->for($quiz)->for($staff, 'staffUser')->completed(10, 25000)->create();
+
+    $component
+        ->call('refreshShow')
+        ->assertDispatched(
+            'perfect-score',
+            name: 'Ada Lovelace',
+            imageUrl: Storage::disk('public')->url('perfect-score-images/sticker.png'),
+        );
 });

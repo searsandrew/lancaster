@@ -7,11 +7,16 @@ use App\Models\Show;
 use Flux\Flux;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Title;
 use Livewire\Component;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Livewire\WithFileUploads;
 
 new #[Title('Configure show')] class extends Component {
+    use WithFileUploads;
+
     public Show $show;
     public string $name;
     public string $activationMode;
@@ -22,6 +27,7 @@ new #[Title('Configure show')] class extends Component {
     public ?string $endTime = null;
     public string $scoringMode;
     public ?int $maximumScore = null;
+    public ?TemporaryUploadedFile $perfectScoreImage = null;
     public string $newQuestion = '';
     /** @var array<int, string> */
     public array $questionPrompts = [];
@@ -57,7 +63,10 @@ new #[Title('Configure show')] class extends Component {
             return;
         }
 
-        DB::transaction(function () use ($validated, $startsAt, $endsAt): void {
+        $previousImagePath = $this->show->quiz->perfect_score_image_path;
+        $perfectScoreImagePath = $this->perfectScoreImage?->store('perfect-score-images', 'public');
+
+        DB::transaction(function () use ($validated, $startsAt, $endsAt, $perfectScoreImagePath): void {
             $this->show->update([
                 'name' => $validated['name'],
                 'activation_mode' => $validated['activationMode'],
@@ -68,8 +77,16 @@ new #[Title('Configure show')] class extends Component {
             $this->show->quiz->update([
                 'scoring_mode' => $validated['scoringMode'],
                 'maximum_score' => $validated['scoringMode'] === 'summary' ? $validated['maximumScore'] : null,
+                'perfect_score_image_path' => $perfectScoreImagePath ?? $this->show->quiz->perfect_score_image_path,
             ]);
         });
+
+        if ($perfectScoreImagePath && $previousImagePath) {
+            Storage::disk('public')->delete($previousImagePath);
+        }
+
+        $this->perfectScoreImage = null;
+        $this->show->quiz->refresh();
 
         Flux::toast(variant: 'success', text: __('Show configuration saved.'));
     }
@@ -133,6 +150,7 @@ new #[Title('Configure show')] class extends Component {
             'endTime' => [Rule::requiredIf($this->activationMode === 'scheduled'), 'nullable', 'date_format:H:i'],
             'scoringMode' => ['required', Rule::enum(QuizScoringMode::class)],
             'maximumScore' => [Rule::requiredIf($this->scoringMode === 'summary'), 'nullable', 'integer', 'min:1', 'max:65535'],
+            'perfectScoreImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ];
     }
 
@@ -181,6 +199,7 @@ new #[Title('Configure show')] class extends Component {
                     <flux:time-picker wire:model="endTime" type="input" :label="__('End time')" />
                 </div>
             @endif
+
         </flux:card>
 
         <flux:card class="space-y-6">
@@ -212,6 +231,31 @@ new #[Title('Configure show')] class extends Component {
                     <flux:error name="newQuestion" />
                 </div>
             @endif
+
+            <flux:separator />
+
+            <div class="space-y-4">
+                <div>
+                    <flux:heading>{{ __('Perfect score celebration') }}</flux:heading>
+                    <flux:text>{{ __('Optionally upload the sticker or prize artwork shown when someone earns a perfect score.') }}</flux:text>
+                </div>
+
+                @if ($show->quiz->perfect_score_image_path)
+                    <img
+                        src="{{ Storage::disk('public')->url($show->quiz->perfect_score_image_path) }}"
+                        alt="{{ __('Current perfect score artwork') }}"
+                        class="max-h-48 rounded-xl border border-zinc-200 object-contain dark:border-zinc-700"
+                    />
+                @endif
+
+                <flux:file-upload wire:model="perfectScoreImage" :label="__('Perfect score image')">
+                    <flux:file-upload.dropzone
+                        :heading="__('Drop an image here or click to browse')"
+                        :text="__('JPG, PNG, or WebP up to 5 MB')"
+                        with-progress
+                    />
+                </flux:file-upload>
+            </div>
         </flux:card>
 
         <div class="flex justify-end"><flux:button variant="primary" type="submit">{{ __('Save configuration') }}</flux:button></div>

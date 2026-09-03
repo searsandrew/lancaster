@@ -6,6 +6,8 @@ use App\Models\Question;
 use App\Models\Quiz;
 use App\Models\Show;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 test('guests are redirected from show configuration to login', function () {
@@ -107,4 +109,39 @@ test('staff can reorder quiz questions', function () {
         ->call('moveQuestion', $second->id, 'up');
 
     expect($quiz->questions()->pluck('id')->all())->toBe([$second->id, $first->id]);
+});
+
+test('staff can upload perfect score artwork for a quiz', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->summary()->create();
+    $image = UploadedFile::fake()->image('perfect-score.png', 800, 800);
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('perfectScoreImage', $image)
+        ->call('save')
+        ->assertHasNoErrors();
+
+    $imagePath = $quiz->fresh()->perfect_score_image_path;
+
+    expect($imagePath)->toStartWith('perfect-score-images/');
+    Storage::disk('public')->assertExists($imagePath);
+});
+
+test('perfect score artwork must be a supported image', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    Quiz::factory()->for($show)->summary()->create();
+    $file = UploadedFile::fake()->create('notes.txt', 20, 'text/plain');
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('perfectScoreImage', $file)
+        ->call('save')
+        ->assertHasErrors(['perfectScoreImage']);
+
+    Storage::disk('public')->assertDirectoryEmpty('perfect-score-images');
 });
