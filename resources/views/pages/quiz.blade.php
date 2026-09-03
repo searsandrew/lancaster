@@ -229,9 +229,14 @@ new #[Title('Run quiz')] class extends Component
 ?>
 
 <section class="w-full space-y-6">
-    <div>
-        <flux:heading size="xl">{{ __('Run quiz') }}</flux:heading>
-        <flux:subheading>{{ $show ? $show->name : __('No single active show') }}</flux:subheading>
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <flux:heading size="xl">{{ __('Run quiz') }}</flux:heading>
+            <flux:subheading>{{ $show ? $show->name : __('No single active show') }}</flux:subheading>
+        </div>
+        <flux:button :href="route('leaderboard')" target="_blank" variant="ghost">
+            {{ __('Open leaderboard') }}
+        </flux:button>
     </div>
 
     @if (! $show)
