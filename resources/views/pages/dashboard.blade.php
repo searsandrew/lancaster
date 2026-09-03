@@ -381,43 +381,45 @@ new #[Title('Dashboard')] class extends Component
 ?>
 
 <section class="w-full space-y-6">
-    <div class="flex items-start justify-between gap-4">
+    <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
             <flux:heading size="xl">{{ $show ? $show->name : __('No single active show') }}</flux:heading>
             <flux:subheading>{{ __('Manage and run the quiz from this screen. Use the toggle and flash commands to control the leaderboard screen. Entrants can be reset, removed, and edited from their contextual menu.') }}</flux:subheading>
         </div>
 
-        <flux:tooltip position:bottom :content="__('Flash Confetti')">
-            <flux:button type="button" icon="sparkles" wire:click="flashConfetti" :disabled="! $show" :aria-label="__('Flash Confetti')" />
-        </flux:tooltip>
-        <flux:tooltip position:bottom :content="__('Flash Perfect Score')">
-            <flux:button type="button" icon="trophy" wire:click="flashPerfectScore" :disabled="! $show" :aria-label="__('Flash Perfect Score')" />
-        </flux:tooltip>
-        <flux:button.group>
-            <flux:button :href="route('leaderboard')" icon="arrow-top-right-on-square" target="_blank">
-                {{ __('Leaderboard') }}
-            </flux:button>
-            <flux:dropdown position="bottom" align="end">
-                <flux:button icon="chevron-down"></flux:button>
-                <flux:menu>
-                    <flux:menu.radio.group>
-                        <flux:menu.radio
-                            :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::Leaderboard->value"
-                            wire:click="setLeaderboardDisplayMode('leaderboard')"
-                        >{{ __('Leaderboard') }}</flux:menu.radio>
-                        <flux:menu.radio
-                            :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::QrCode->value"
-                            wire:click="setLeaderboardDisplayMode('qr_code')"
-                        >{{ __('QR Code') }}</flux:menu.radio>
-                        <flux:menu.radio
-                            :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::Advertisement->value"
-                            :disabled="! $show?->quiz?->advertisement_embed_url"
-                            wire:click="setLeaderboardDisplayMode('advertisement')"
-                        >{{ __('Play Ad') }}</flux:menu.radio>
-                    </flux:menu.radio.group>
-                </flux:menu>
-            </flux:dropdown>
-        </flux:button.group>
+        <div class="flex items-center gap-2">
+            <flux:tooltip position:bottom :content="__('Flash Confetti')">
+                <flux:button type="button" icon="sparkles" wire:click="flashConfetti" :disabled="! $show" :aria-label="__('Flash Confetti')" />
+            </flux:tooltip>
+            <flux:tooltip position:bottom :content="__('Flash Perfect Score')">
+                <flux:button type="button" icon="trophy" wire:click="flashPerfectScore" :disabled="! $show" :aria-label="__('Flash Perfect Score')" />
+            </flux:tooltip>
+            <flux:button.group>
+                <flux:button :href="route('leaderboard')" icon="arrow-top-right-on-square" target="_blank">
+                    {{ __('Leaderboard') }}
+                </flux:button>
+                <flux:dropdown position="bottom" align="end">
+                    <flux:button icon="chevron-down"></flux:button>
+                    <flux:menu>
+                        <flux:menu.radio.group>
+                            <flux:menu.radio
+                                :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::Leaderboard->value"
+                                wire:click="setLeaderboardDisplayMode('leaderboard')"
+                            >{{ __('Leaderboard') }}</flux:menu.radio>
+                            <flux:menu.radio
+                                :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::QrCode->value"
+                                wire:click="setLeaderboardDisplayMode('qr_code')"
+                            >{{ __('QR Code') }}</flux:menu.radio>
+                            <flux:menu.radio
+                                :checked="$leaderboardDisplayMode === LeaderboardDisplayMode::Advertisement->value"
+                                :disabled="! $show?->quiz?->advertisement_embed_url"
+                                wire:click="setLeaderboardDisplayMode('advertisement')"
+                            >{{ __('Play Ad') }}</flux:menu.radio>
+                        </flux:menu.radio.group>
+                    </flux:menu>
+                </flux:dropdown>
+            </flux:button.group>
+        </div>
     </div>
 
     @if (! $show)
@@ -425,48 +427,101 @@ new #[Title('Dashboard')] class extends Component
             {{ __('Activate exactly one show before running its quiz.') }}
         </flux:callout>
     @elseif ($this->entry)
-        <flux:card class="space-y-6">
-            <div>
-                <div class="flex items-center gap-3">
-                    <flux:heading size="lg">{{ $this->entry->participant->first_name }} {{ $this->entry->participant->last_name }}</flux:heading>
-                    @if ($editingCompletedEntry)
-                        <flux:badge color="amber" size="sm">{{ __('Editing completed result') }}</flux:badge>
-                    @endif
+        <flux:card class="space-y-6 border-accent/30">
+            <div class="flex flex-col gap-4 border-b border-zinc-200 pb-6 dark:border-white/10 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <div class="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500">{{ __('Current contestant') }}</div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <flux:heading size="xl">{{ $this->entry->participant->first_name }} {{ $this->entry->participant->last_name }}</flux:heading>
+                        <flux:badge :color="$editingCompletedEntry ? 'amber' : 'blue'" size="sm">
+                            {{ $editingCompletedEntry ? __('Editing completed result') : __('Quiz in progress') }}
+                        </flux:badge>
+                    </div>
+                    <flux:text class="mt-1">{{ $this->entry->participant->email }}</flux:text>
+                    <flux:text class="mt-1 text-xs">
+                        {{ __('Started :time', ['time' => $this->entry->started_at->diffForHumans()]) }}
+                    </flux:text>
                 </div>
-                <flux:text>{{ $this->entry->participant->email }}</flux:text>
-                <div class="mt-3">
+
+                <div class="flex max-w-sm flex-col items-start gap-2 sm:items-end sm:text-right">
                     @if ($this->entry->participant->marketing_opt_in)
                         <flux:badge color="green" icon="check-circle">{{ __('Email signup accepted') }}</flux:badge>
                     @else
-                        <flux:callout variant="warning" icon="envelope">
-                            <flux:callout.heading>{{ __('Email signup declined') }}</flux:callout.heading>
-                            <flux:callout.text>{{ __('If they reconsider, update their consent before completing the quiz.') }}</flux:callout.text>
-                            <x-slot name="actions">
+                        <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left dark:border-amber-400/30 dark:bg-amber-400/10">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <div class="text-sm font-semibold text-amber-800 dark:text-amber-200">{{ __('Email signup declined') }}</div>
+                                    <div class="text-xs text-amber-700 dark:text-amber-300">{{ __('Ask if they would like to reconsider.') }}</div>
+                                </div>
                                 <flux:button type="button" size="sm" wire:click="editParticipant({{ $this->entry->participant->id }})">
-                                    {{ __('Update consent') }}
+                                    {{ __('Update') }}
                                 </flux:button>
-                            </x-slot>
-                        </flux:callout>
+                            </div>
+                        </div>
                     @endif
+
+                    @if ($editingCompletedEntry)
+                        <flux:text class="text-xs">{{ __('Changes update the existing leaderboard result.') }}</flux:text>
+                    @endif
+                    <div wire:dirty class="mt-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                        {{ __('Unsaved quiz changes') }}
+                    </div>
                 </div>
             </div>
 
             <form wire:submit="complete" class="space-y-6">
+                @if ($errors->any())
+                    <flux:callout variant="danger" icon="exclamation-triangle">
+                        <flux:callout.heading>{{ __('Check the highlighted quiz details') }}</flux:callout.heading>
+                        <flux:callout.text>{{ __('Nothing has been completed yet. Correct the fields below and try again.') }}</flux:callout.text>
+                    </flux:callout>
+                @endif
+
                 @if ($this->entry->quiz->scoring_mode === QuizScoringMode::Summary)
                     <div class="grid gap-4 sm:grid-cols-2">
-                        <flux:input wire:model="summaryScore" type="number" min="0" :max="$this->entry->quiz->maximum_score" :label="__('Score (out of :maximum)', ['maximum' => $this->entry->quiz->maximum_score])" required />
-                        <flux:input wire:model="summarySeconds" type="number" step="0.001" min="0.001" :label="__('Total time (seconds)')" required />
+                        <flux:input
+                            wire:model="summaryScore"
+                            type="number"
+                            min="0"
+                            :max="$this->entry->quiz->maximum_score"
+                            :label="__('Final score')"
+                            :description="__('Enter a score from 0 to :maximum.', ['maximum' => $this->entry->quiz->maximum_score])"
+                            required
+                        />
+                        <flux:input
+                            wire:model="summarySeconds"
+                            type="number"
+                            inputmode="decimal"
+                            step="0.001"
+                            min="0.001"
+                            :label="__('Total elapsed time')"
+                            :description="__('Enter seconds. Decimals are supported, for example 42.375.')"
+                            required
+                        />
                     </div>
                 @else
                     <div class="space-y-4">
+                        <div>
+                            <flux:heading>{{ __('Record each answer') }}</flux:heading>
+                            <flux:text>{{ trans_choice(':count question|:count questions', $this->entry->quiz->questions->count(), ['count' => $this->entry->quiz->questions->count()]) }} · {{ __('Enter each time in seconds.') }}</flux:text>
+                        </div>
                         @foreach ($this->entry->quiz->questions as $question)
                             <flux:card wire:key="question-{{ $question->id }}" class="grid items-end gap-4 sm:grid-cols-[1fr_auto_12rem]">
                                 <div>
-                                    <flux:text class="text-xs">{{ __('Question :position', ['position' => $question->position]) }}</flux:text>
+                                    <flux:text class="text-xs font-semibold uppercase tracking-wider">{{ __('Question :current of :total', ['current' => $loop->iteration, 'total' => $loop->count]) }}</flux:text>
                                     <flux:heading>{{ $question->prompt }}</flux:heading>
                                 </div>
                                 <flux:switch wire:model="answerCorrect.{{ $question->id }}" :label="__('Correct')" />
-                                <flux:input wire:model="answerSeconds.{{ $question->id }}" type="number" step="0.001" min="0.001" :label="__('Time (seconds)')" required />
+                                <flux:input
+                                    wire:model="answerSeconds.{{ $question->id }}"
+                                    type="number"
+                                    inputmode="decimal"
+                                    step="0.001"
+                                    min="0.001"
+                                    :label="__('Time in seconds')"
+                                    placeholder="0.000"
+                                    required
+                                />
                             </flux:card>
                         @endforeach
                     </div>
@@ -475,15 +530,33 @@ new #[Title('Dashboard')] class extends Component
                 <flux:error name="entry" />
                 <flux:error name="show" />
 
-                <div class="flex justify-end gap-2">
-                    <flux:button type="button" variant="ghost" wire:click="cancel">{{ __('Back to queue') }}</flux:button>
-                    <flux:button type="submit" variant="primary">{{ $editingCompletedEntry ? __('Save result') : __('Complete quiz') }}</flux:button>
+                <div class="sticky bottom-0 -mx-6 -mb-6 flex flex-col-reverse gap-2 border-t border-zinc-200 bg-white/95 p-4 backdrop-blur dark:border-white/10 dark:bg-zinc-800/95 sm:flex-row sm:justify-end">
+                    <flux:button type="button" variant="ghost" wire:click="cancel" wire:loading.attr="disabled" wire:target="complete,cancel">
+                        {{ __('Back to queue') }}
+                    </flux:button>
+                    <flux:button
+                        type="submit"
+                        variant="primary"
+                        wire:loading.attr="disabled"
+                        wire:target="complete"
+                        wire:confirm="{{ $editingCompletedEntry ? __('Save these changes to the completed result?') : __('Complete this quiz and publish the result to the leaderboard?') }}"
+                    >
+                        {{ $editingCompletedEntry ? __('Save result') : __('Complete and publish') }}
+                    </flux:button>
                 </div>
             </form>
         </flux:card>
     @else
         <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <flux:input wire:model.live.debounce.300ms="search" type="search" :label="__('Find participant')" :placeholder="__('Search name or email')" class="w-full sm:max-w-md" />
+            <flux:input
+                wire:model.live.debounce.300ms="search"
+                type="search"
+                :label="__('Find participant')"
+                :placeholder="__('Search by name or email')"
+                clearable
+                autofocus
+                class="w-full sm:max-w-md"
+            />
             <flux:text>{{ trans_choice(':count participant|:count participants', $this->participants->count(), ['count' => $this->participants->count()]) }}</flux:text>
         </div>
 

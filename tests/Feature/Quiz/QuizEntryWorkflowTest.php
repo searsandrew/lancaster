@@ -89,6 +89,10 @@ test('staff can complete a summary-scored quiz', function () {
     Livewire::actingAs($user)
         ->test('pages::dashboard')
         ->call('start', $participant->id)
+        ->assertSee('Current contestant')
+        ->assertSee('Quiz in progress')
+        ->assertSee('Enter seconds. Decimals are supported, for example 42.375.')
+        ->assertSee('Complete and publish')
         ->set('summaryScore', 17)
         ->set('summarySeconds', '42.375')
         ->call('complete')
@@ -115,7 +119,8 @@ test('summary score cannot exceed the configured maximum', function () {
         ->set('summaryScore', 11)
         ->set('summarySeconds', '10')
         ->call('complete')
-        ->assertHasErrors(['summaryScore']);
+        ->assertHasErrors(['summaryScore'])
+        ->assertSee('Nothing has been completed yet. Correct the fields below and try again.');
 
     expect(QuizEntry::query()->sole()->completed_at)->toBeNull();
 });
@@ -131,6 +136,9 @@ test('staff can complete a per-answer quiz with timing', function () {
     Livewire::actingAs($user)
         ->test('pages::dashboard')
         ->call('start', $participant->id)
+        ->assertSee('Question 1 of 2')
+        ->assertSee('Question 2 of 2')
+        ->assertSee('Enter each time in seconds.')
         ->set("answerCorrect.{$first->id}", true)
         ->set("answerSeconds.{$first->id}", '3.125')
         ->set("answerCorrect.{$second->id}", false)
