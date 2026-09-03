@@ -264,22 +264,3 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
         </footer>
     @endif
 </main>
-
-<style>
-    [x-cloak] { display: none !important; }
-
-    .leaderboard-confetti {
-        animation-name: leaderboard-confetti-fall;
-        animation-timing-function: cubic-bezier(.15, .65, .35, 1);
-        animation-fill-mode: forwards;
-    }
-
-    @keyframes leaderboard-confetti-fall {
-        0% { transform: translate3d(0, -5vh, 0) rotate(0deg); opacity: 1; }
-        100% { transform: translate3d(var(--confetti-x), 105vh, 0) rotate(var(--confetti-rotation)); opacity: .15; }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        .leaderboard-confetti { display: none; }
-    }
-</style>

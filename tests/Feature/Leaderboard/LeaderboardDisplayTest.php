@@ -157,6 +157,14 @@ test('a new number one triggers a confetti burst', function () {
         ->assertDispatched('leaderboard-confetti');
 });
 
+test('the confetti animation is defined in the global stylesheet', function () {
+    $stylesheet = file_get_contents(resource_path('css/app.css'));
+
+    expect($stylesheet)
+        ->toContain('.leaderboard-confetti')
+        ->toContain('@keyframes leaderboard-confetti-fall');
+});
+
 test('a result below first place does not trigger confetti', function () {
     $show = Show::factory()->active()->create();
     $quiz = Quiz::factory()->for($show)->summary(10)->create();
