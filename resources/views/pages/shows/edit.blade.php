@@ -28,6 +28,7 @@ new #[Title('Configure show')] class extends Component {
     public string $scoringMode;
     public ?int $maximumScore = null;
     public ?TemporaryUploadedFile $perfectScoreImage = null;
+    public string $leaderboardMessage = '';
     public string $newQuestion = '';
     /** @var array<int, string> */
     public array $questionPrompts = [];
@@ -44,6 +45,7 @@ new #[Title('Configure show')] class extends Component {
         $this->endTime = $show->ends_at?->format('H:i');
         $this->scoringMode = $show->quiz->scoring_mode->value;
         $this->maximumScore = $show->quiz->maximum_score;
+        $this->leaderboardMessage = $show->quiz->leaderboard_message ?? '';
         $this->refreshQuestions();
     }
 
@@ -78,6 +80,7 @@ new #[Title('Configure show')] class extends Component {
                 'scoring_mode' => $validated['scoringMode'],
                 'maximum_score' => $validated['scoringMode'] === 'summary' ? $validated['maximumScore'] : null,
                 'perfect_score_image_path' => $perfectScoreImagePath ?? $this->show->quiz->perfect_score_image_path,
+                'leaderboard_message' => trim($validated['leaderboardMessage']) ?: null,
             ]);
         });
 
@@ -151,6 +154,7 @@ new #[Title('Configure show')] class extends Component {
             'scoringMode' => ['required', Rule::enum(QuizScoringMode::class)],
             'maximumScore' => [Rule::requiredIf($this->scoringMode === 'summary'), 'nullable', 'integer', 'min:1', 'max:65535'],
             'perfectScoreImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'leaderboardMessage' => ['nullable', 'string', 'max:160'],
         ];
     }
 
@@ -231,6 +235,16 @@ new #[Title('Configure show')] class extends Component {
                     <flux:error name="newQuestion" />
                 </div>
             @endif
+
+            <flux:separator />
+
+            <flux:textarea
+                wire:model="leaderboardMessage"
+                :label="__('Leaderboard message')"
+                :description="__('Optional quiz-specific information shown in the bottom bar.')"
+                rows="2"
+                maxlength="160"
+            />
 
             <flux:separator />
 

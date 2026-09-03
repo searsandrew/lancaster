@@ -17,7 +17,9 @@ test('the leaderboard is publicly accessible without an active show', function (
 
 test('completed entries are ranked by score then fastest time', function () {
     $show = Show::factory()->active()->create(['name' => 'Manufacturing Expo']);
-    $quiz = Quiz::factory()->for($show)->summary(20)->create();
+    $quiz = Quiz::factory()->for($show)->summary(20)->create([
+        'leaderboard_message' => 'Perfect score? Pick up your sticker at the table.',
+    ]);
     $staff = User::factory()->create();
     $slowerWinner = Participant::factory()->for($show)->create(['first_name' => 'Ada', 'last_name' => 'Lovelace']);
     $fasterWinner = Participant::factory()->for($show)->create(['first_name' => 'Grace', 'last_name' => 'Hopper']);
@@ -31,7 +33,10 @@ test('completed entries are ranked by score then fastest time', function () {
         ->assertSeeInOrder(['Grace Hopper', 'Ada Lovelace', 'Katherine Johnson'])
         ->assertSee('18')
         ->assertSee('/20')
-        ->assertSee('30.000s');
+        ->assertSee('30.000s')
+        ->assertSee('Updates automatically')
+        ->assertSee('Higher score wins. Fastest time breaks ties.')
+        ->assertSee('Perfect score? Pick up your sticker at the table.');
 });
 
 test('incomplete and inactive-show entries are excluded', function () {
@@ -111,6 +116,17 @@ test('participant names are escaped on the leaderboard', function () {
     Livewire::test('pages::leaderboard')
         ->assertSee('<script>alert("leaderboard")</script>')
         ->assertDontSee('<script>alert("leaderboard")</script>', false);
+});
+
+test('quiz-specific leaderboard information is escaped', function () {
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->summary()->create([
+        'leaderboard_message' => '<script>alert("message")</script>',
+    ]);
+
+    Livewire::test('pages::leaderboard')
+        ->assertSee('<script>alert("message")</script>')
+        ->assertDontSee('<script>alert("message")</script>', false);
 });
 
 test('the initial leaderboard load does not celebrate existing results', function () {

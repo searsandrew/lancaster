@@ -44,6 +44,7 @@ test('staff can update show and summary scoring configuration', function () {
         ->set('endTime', '17:00')
         ->set('scoringMode', 'summary')
         ->set('maximumScore', 25)
+        ->set('leaderboardMessage', 'Sticker pickup at booth 412')
         ->call('save')
         ->assertHasNoErrors();
 
@@ -58,7 +59,20 @@ test('staff can update show and summary scoring configuration', function () {
         ->and($show->ends_at?->format('Y-m-d H:i'))->toBe('2026-10-10 17:00')
         ->and($quiz->scoring_mode)->toBe(QuizScoringMode::Summary)
         ->and($quiz->maximum_score)->toBe(25)
+        ->and($quiz->leaderboard_message)->toBe('Sticker pickup at booth 412')
         ->and($question->fresh())->not->toBeNull();
+});
+
+test('leaderboard messages are limited to the available display space', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    Quiz::factory()->for($show)->summary()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('leaderboardMessage', str_repeat('a', 161))
+        ->call('save')
+        ->assertHasErrors(['leaderboardMessage']);
 });
 
 test('per-answer scoring requires at least one question', function () {

@@ -27,7 +27,7 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
         $previousShowId = $this->show?->id;
         $activeShows = Show::query()->activeAt()->with('quiz')->limit(2)->get();
         $this->show = $activeShows->count() === 1 ? $activeShows->first() : null;
-        unset($this->entries, $this->maximumScore);
+        unset($this->entries, $this->maximumScore, $this->completedCount);
 
         if (! $this->show?->quiz) {
             $this->leaderId = null;
@@ -105,6 +105,14 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
         return $this->show->quiz->questions()->count();
     }
 
+    #[Computed]
+    public function completedCount(): int
+    {
+        return $this->show?->quiz?->entries()
+            ->whereNotNull('completed_at')
+            ->count() ?? 0;
+    }
+
     public function formattedTime(int $milliseconds): string
     {
         if ($milliseconds < 60000) {
@@ -151,7 +159,7 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
     }"
     x-on:leaderboard-confetti.window="burstConfetti()"
     x-on:perfect-score.window="showPerfectScore($event.detail)"
-    class="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(39,39,42,0.8),_rgb(9,9,11)_58%)] px-8 py-10 lg:px-16 lg:py-12"
+    class="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(39,39,42,0.8),_rgb(9,9,11)_58%)] px-8 pb-32 pt-10 lg:px-16 lg:pb-36 lg:pt-12"
 >
     <div class="pointer-events-none fixed inset-0 z-50 overflow-hidden" aria-hidden="true">
         <template x-for="piece in confetti" :key="piece.id">
@@ -198,8 +206,16 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
                     <h1 class="text-5xl font-black tracking-tight lg:text-7xl">{{ __('Quiz leaderboard') }}</h1>
                 </div>
                 <div class="shrink-0 text-right">
-                    <div class="text-4xl font-black text-amber-400">{{ $this->entries->count() }}</div>
-                    <div class="text-sm uppercase tracking-widest text-zinc-500">{{ __('Completed') }}</div>
+                    <div class="flex items-center justify-end gap-3">
+                        <div class="text-4xl font-black text-amber-400">{{ $this->completedCount }}</div>
+                        <div class="text-left">
+                            <div class="text-sm uppercase tracking-widest text-zinc-500">{{ __('Completed') }}</div>
+                            <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-400">
+                                <span class="size-2 rounded-full bg-emerald-400"></span>
+                                {{ __('Updates automatically') }}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </header>
 
@@ -235,11 +251,18 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
                 </div>
             @endif
 
-            <footer class="flex items-center justify-between pt-2 text-sm uppercase tracking-widest text-zinc-600">
-                <span>{{ __('Higher score wins. Fastest time breaks ties.') }}</span>
-                <span>{{ __('Updates automatically') }}</span>
-            </footer>
         </div>
+
+        <footer class="fixed inset-x-0 bottom-0 z-30 border-t border-white/15 bg-zinc-950 px-8 py-5 shadow-[0_-20px_45px_rgba(0,0,0,0.55)] lg:px-16">
+            <div class="mx-auto grid max-w-7xl items-center gap-8 md:grid-cols-[1fr_minmax(18rem,0.45fr)]">
+                <div class="text-base font-bold uppercase tracking-[0.18em] text-zinc-300">
+                    {{ __('Higher score wins. Fastest time breaks ties.') }}
+                </div>
+                <div class="min-h-6 border-white/15 text-right text-sm font-medium text-amber-300 md:border-l md:pl-8">
+                    {{ $show->quiz->leaderboard_message }}
+                </div>
+            </div>
+        </footer>
     @endif
 </main>
 

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['show_id', 'scoring_mode', 'maximum_score', 'perfect_score_image_path'])]
+#[Fillable(['show_id', 'scoring_mode', 'maximum_score', 'perfect_score_image_path', 'leaderboard_message'])]
 class Quiz extends Model
 {
     /** @use HasFactory<QuizFactory> */
