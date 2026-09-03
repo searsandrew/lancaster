@@ -119,6 +119,7 @@ new #[Title('Shows')] class extends Component {
                 <flux:table.column>{{ __('Activation') }}</flux:table.column>
                 <flux:table.column>{{ __('Scoring') }}</flux:table.column>
                 <flux:table.column>{{ __('Status') }}</flux:table.column>
+                <flux:table.column></flux:table.column>
             </flux:table.columns>
             <flux:table.rows>
                 @foreach ($this->shows as $show)
@@ -130,6 +131,9 @@ new #[Title('Shows')] class extends Component {
                             <flux:badge :color="$show->isActiveAt() ? 'green' : 'zinc'" size="sm">
                                 {{ $show->isActiveAt() ? __('Active') : __('Inactive') }}
                             </flux:badge>
+                        </flux:table.cell>
+                        <flux:table.cell class="text-end">
+                            <flux:button :href="route('shows.edit', $show)" variant="ghost" size="sm" wire:navigate>{{ __('Configure') }}</flux:button>
                         </flux:table.cell>
                     </flux:table.row>
                 @endforeach

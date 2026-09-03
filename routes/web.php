@@ -20,4 +20,8 @@ Route::livewire('shows', 'pages::shows.index')
     ->middleware(['auth', 'verified'])
     ->name('shows.index');
 
+Route::livewire('shows/{show}/edit', 'pages::shows.edit')
+    ->middleware(['auth', 'verified'])
+    ->name('shows.edit');
+
 require __DIR__.'/settings.php';

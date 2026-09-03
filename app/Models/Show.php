@@ -18,6 +18,11 @@ class Show extends Model
     /** @use HasFactory<ShowFactory> */
     use HasFactory;
 
+    public function getRouteKeyName(): string
+    {
+        return 'slug';
+    }
+
     /**
      * Get the quiz configured for this show.
      */
