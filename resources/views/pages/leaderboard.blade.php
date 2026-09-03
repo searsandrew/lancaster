@@ -205,18 +205,17 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
                     <div class="mb-3 text-sm font-semibold uppercase tracking-[0.35em] text-amber-400">{{ $show->name }}</div>
                     <h1 class="text-5xl font-black tracking-tight lg:text-7xl">{{ __('Quiz leaderboard') }}</h1>
                 </div>
-                <div class="shrink-0 text-right">
-                    <div class="flex items-center justify-end gap-3">
-                        <div class="text-4xl font-black text-amber-400">{{ $this->completedCount }}</div>
-                        <div class="text-left">
-                            <div class="text-sm uppercase tracking-widest text-zinc-500">{{ __('Completed') }}</div>
-                            <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-400">
-                                <span class="size-2 rounded-full bg-emerald-400"></span>
-                                {{ __('Updates automatically') }}
-                            </div>
-                        </div>
-                    </div>
+            <div class="shrink-0 text-right">
+                <div class="text-4xl font-black text-amber-400">{{ $this->completedCount }}</div>
+                <div class="text-sm uppercase tracking-widest text-zinc-500">{{ __('Completed') }}</div>
+                <div class="mt-1 flex items-center justify-end gap-1 text-[0.65rem] font-semibold uppercase tracking-wider text-emerald-400">
+                    <span class="relative flex size-2">
+                        <span class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex size-2 rounded-full bg-emerald-400"></span>
+                    </span>
+                    {{ __('Updates automatically') }}
                 </div>
+            </div>
             </header>
 
             @if ($this->entries->isEmpty())
