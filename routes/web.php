@@ -3,7 +3,7 @@
 use App\Http\Controllers\Auth\MicrosoftAuthenticationController;
 use Illuminate\Support\Facades\Route;
 
-Route::view('/', 'welcome')->name('home');
+Route::livewire('/', 'pages::register')->name('home');
 
 Route::middleware('guest')->group(function () {
     Route::get('auth/microsoft', [MicrosoftAuthenticationController::class, 'redirect'])

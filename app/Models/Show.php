@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
@@ -29,6 +30,14 @@ class Show extends Model
     public function quiz(): HasOne
     {
         return $this->hasOne(Quiz::class);
+    }
+
+    /**
+     * Get the participants registered for this show.
+     */
+    public function participants(): HasMany
+    {
+        return $this->hasMany(Participant::class);
     }
 
     /**
