@@ -13,9 +13,12 @@ Route::middleware('guest')->group(function () {
         ->name('microsoft.callback');
 });
 
-Route::view('dashboard', 'dashboard')
+Route::livewire('dashboard', 'pages::dashboard')
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
+
+Route::redirect('quiz', 'dashboard')
+    ->middleware(['auth', 'verified']);
 
 Route::livewire('shows', 'pages::shows.index')
     ->middleware(['auth', 'verified'])
@@ -24,9 +27,5 @@ Route::livewire('shows', 'pages::shows.index')
 Route::livewire('shows/{show}/edit', 'pages::shows.edit')
     ->middleware(['auth', 'verified'])
     ->name('shows.edit');
-
-Route::livewire('quiz', 'pages::quiz')
-    ->middleware(['auth', 'verified'])
-    ->name('quiz.index');
 
 require __DIR__.'/settings.php';

@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Livewire\Livewire;
 
 test('guests are redirected from the quiz workflow', function () {
-    $this->get(route('quiz.index'))->assertRedirect(route('login'));
+    $this->get('/quiz')->assertRedirect(route('login'));
 });
 
 test('staff can view and search participants from the active show', function () {
@@ -32,7 +32,7 @@ test('staff can view and search participants from the active show', function () 
     Participant::factory()->for($inactiveShow)->create(['first_name' => 'Hidden']);
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->assertSee('Ada Lovelace')
         ->assertSee('Grace Hopper')
         ->assertDontSee('Hidden')
@@ -48,7 +48,7 @@ test('starting a quiz creates only one entry and records the staff member', func
     $participant = Participant::factory()->for($show)->create();
 
     $component = Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('start', $participant->id)
         ->assertHasNoErrors();
 
@@ -72,7 +72,7 @@ test('staff cannot start a participant from another show', function () {
     $otherParticipant = Participant::factory()->create();
 
     expect(fn () => Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('start', $otherParticipant->id))
         ->toThrow(ModelNotFoundException::class);
 
@@ -87,7 +87,7 @@ test('staff can complete a summary-scored quiz', function () {
     $participant = Participant::factory()->for($show)->create();
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('start', $participant->id)
         ->set('summaryScore', 17)
         ->set('summarySeconds', '42.375')
@@ -110,7 +110,7 @@ test('summary score cannot exceed the configured maximum', function () {
     $participant = Participant::factory()->for($show)->create();
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('start', $participant->id)
         ->set('summaryScore', 11)
         ->set('summarySeconds', '10')
@@ -129,7 +129,7 @@ test('staff can complete a per-answer quiz with timing', function () {
     $participant = Participant::factory()->for($show)->create();
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('start', $participant->id)
         ->set("answerCorrect.{$first->id}", true)
         ->set("answerSeconds.{$first->id}", '3.125')
@@ -168,7 +168,7 @@ test('every per-answer question requires a time', function () {
     $participant = Participant::factory()->for($show)->create();
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('start', $participant->id)
         ->set("answerCorrect.{$question->id}", true)
         ->call('complete')
@@ -191,7 +191,7 @@ test('a completed quiz entry cannot be reopened', function () {
         ->create();
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('start', $participant->id)
         ->assertHasErrors(['entry' => 'This quiz entry has already been completed.'])
         ->assertSet('entryId', null);
@@ -211,7 +211,7 @@ test('staff can edit contestant details', function () {
     ]);
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('editParticipant', $participant->id)
         ->set('participantFirstName', '  Grace ')
         ->set('participantLastName', ' Hopper  ')
@@ -241,7 +241,7 @@ test('staff can see email signup consent in the participant queue', function () 
     ]);
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->assertSee('Email signup')
         ->assertSee('Accepted')
         ->assertSee('Declined');
@@ -256,7 +256,7 @@ test('staff can update declined email consent while running a quiz', function ()
     ]);
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('start', $participant->id)
         ->assertSee('Email signup declined')
         ->call('editParticipant', $participant->id)
@@ -276,7 +276,7 @@ test('contestant email must remain unique within the show', function () {
     $participant = Participant::factory()->for($show)->create(['email' => 'original@example.com']);
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('editParticipant', $participant->id)
         ->set('participantEmail', 'existing@example.com')
         ->call('saveParticipant')
@@ -302,7 +302,7 @@ test('staff can edit a completed result without changing its completion time', f
     $this->travel(10)->minutes();
 
     Livewire::actingAs($editingStaff)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('editResult', $participant->id)
         ->assertSet('editingCompletedEntry', true)
         ->set('summaryScore', 18)
@@ -330,7 +330,7 @@ test('deleting a result keeps the contestant available for another attempt', fun
         ->create();
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('deleteEntry', $participant->id)
         ->assertHasNoErrors();
 
@@ -356,7 +356,7 @@ test('deleting a contestant also deletes their quiz data', function () {
     ]);
 
     Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('deleteParticipant', $participant->id)
         ->assertHasNoErrors();
 
@@ -372,7 +372,7 @@ test('staff cannot manage contestants from another show', function () {
     $otherParticipant = Participant::factory()->create();
 
     expect(fn () => Livewire::actingAs($user)
-        ->test('pages::quiz')
+        ->test('pages::dashboard')
         ->call('editParticipant', $otherParticipant->id))
         ->toThrow(ModelNotFoundException::class);
 

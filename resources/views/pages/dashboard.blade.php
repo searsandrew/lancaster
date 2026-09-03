@@ -13,7 +13,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Title('Staff dashboard')] class extends Component
+new #[Title('Dashboard')] class extends Component
 {
     public ?Show $show = null;
     public string $search = '';
@@ -346,11 +346,25 @@ new #[Title('Staff dashboard')] class extends Component
 <section class="w-full space-y-6">
     <div class="flex items-start justify-between gap-4">
         <div>
-            <flux:heading size="xl">{{ __('Staff dashboard') }}</flux:heading>
-            <flux:subheading>{{ $show ? $show->name : __('No single active show') }}</flux:subheading>
+            <flux:heading size="xl">{{ $show ? $show->name : __('No single active show') }}</flux:heading>
+            <flux:subheading>{{ __('Manage and run the quiz from this screen. Use the toggle and flash commands to control the leaderboard screen. Entrants can be reset, removed, and edited from their contextual menu.') }}</flux:subheading>
         </div>
-        <flux:button :href="route('leaderboard')" target="_blank" variant="ghost">
-            {{ __('Open leaderboard') }}
+
+        <flux:dropdown position="bottom" align="end">
+            <flux:button icon:trailing="megaphone" />
+            <flux:menu>
+                <flux:menu.group :heading="__('Toggle')">
+                    <flux:menu.item icon="qr-code">{{ __('QR Code') }}</flux:menu.item>
+                    <flux:menu.item icon="radio">{{ __('Play Ad') }}</flux:menu.item>
+                </flux:menu.group>
+                <flux:menu.group :heading="__('Flash')">
+                    <flux:menu.item icon="sparkles">{{ __('Confetti') }}</flux:menu.item>
+                    <flux:menu.item icon="trophy">{{ __('Perfect Score') }}</flux:menu.item>
+                </flux:menu.group>
+            </flux:menu>
+        </flux:dropdown>
+        <flux:button :href="route('leaderboard')" icon="arrow-top-right-on-square" target="_blank">
+            {{ __('Leaderboard') }}
         </flux:button>
     </div>
 
