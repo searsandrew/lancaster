@@ -198,3 +198,142 @@ test('a completed quiz entry cannot be reopened', function () {
 
     expect(QuizEntry::query()->count())->toBe(1);
 });
+
+test('staff can edit contestant details', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create();
+    $participant = Participant::factory()->for($show)->create([
+        'first_name' => 'Ada',
+        'last_name' => 'Lovelace',
+        'email' => 'ada@example.com',
+        'marketing_opt_in' => true,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::quiz')
+        ->call('editParticipant', $participant->id)
+        ->set('participantFirstName', '  Grace ')
+        ->set('participantLastName', ' Hopper  ')
+        ->set('participantEmail', 'GRACE@EXAMPLE.COM ')
+        ->set('participantMarketingOptIn', false)
+        ->call('saveParticipant')
+        ->assertHasNoErrors();
+
+    expect($participant->refresh())
+        ->first_name->toBe('Grace')
+        ->last_name->toBe('Hopper')
+        ->email->toBe('grace@example.com')
+        ->marketing_opt_in->toBeFalse();
+});
+
+test('contestant email must remain unique within the show', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create();
+    Participant::factory()->for($show)->create(['email' => 'existing@example.com']);
+    $participant = Participant::factory()->for($show)->create(['email' => 'original@example.com']);
+
+    Livewire::actingAs($user)
+        ->test('pages::quiz')
+        ->call('editParticipant', $participant->id)
+        ->set('participantEmail', 'existing@example.com')
+        ->call('saveParticipant')
+        ->assertHasErrors(['participantEmail' => 'The participant email has already been taken.']);
+
+    expect($participant->refresh()->email)->toBe('original@example.com');
+});
+
+test('staff can edit a completed result without changing its completion time', function () {
+    $this->travelTo('2026-09-03 10:00:00');
+    $originalStaff = User::factory()->create();
+    $editingStaff = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->summary(20)->create();
+    $participant = Participant::factory()->for($show)->create();
+    $entry = QuizEntry::factory()
+        ->for($participant)
+        ->for($quiz)
+        ->for($originalStaff, 'staffUser')
+        ->completed(12, 30000)
+        ->create();
+    $originalCompletedAt = $entry->completed_at;
+    $this->travel(10)->minutes();
+
+    Livewire::actingAs($editingStaff)
+        ->test('pages::quiz')
+        ->call('editResult', $participant->id)
+        ->assertSet('editingCompletedEntry', true)
+        ->set('summaryScore', 18)
+        ->set('summarySeconds', '25.125')
+        ->call('complete')
+        ->assertHasNoErrors();
+
+    expect($entry->refresh())
+        ->score->toBe(18)
+        ->elapsed_ms->toBe(25125)
+        ->staff_user_id->toBe($editingStaff->id)
+        ->and($entry->completed_at?->timestamp)->toBe($originalCompletedAt?->timestamp);
+});
+
+test('deleting a result keeps the contestant available for another attempt', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->summary()->create();
+    $participant = Participant::factory()->for($show)->create();
+    $entry = QuizEntry::factory()
+        ->for($participant)
+        ->for($quiz)
+        ->for($user, 'staffUser')
+        ->completed()
+        ->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::quiz')
+        ->call('deleteEntry', $participant->id)
+        ->assertHasNoErrors();
+
+    $this->assertModelExists($participant);
+    $this->assertModelMissing($entry);
+});
+
+test('deleting a contestant also deletes their quiz data', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->create();
+    $question = Question::factory()->for($quiz)->create(['position' => 1]);
+    $participant = Participant::factory()->for($show)->create();
+    $entry = QuizEntry::factory()
+        ->for($participant)
+        ->for($quiz)
+        ->for($user, 'staffUser')
+        ->completed()
+        ->create();
+    $answer = QuizAnswer::factory()->for($entry)->create([
+        'question_id' => $question->id,
+        'position' => 1,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::quiz')
+        ->call('deleteParticipant', $participant->id)
+        ->assertHasNoErrors();
+
+    $this->assertModelMissing($participant);
+    $this->assertModelMissing($entry);
+    $this->assertModelMissing($answer);
+});
+
+test('staff cannot manage contestants from another show', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create();
+    $otherParticipant = Participant::factory()->create();
+
+    expect(fn () => Livewire::actingAs($user)
+        ->test('pages::quiz')
+        ->call('editParticipant', $otherParticipant->id))
+        ->toThrow(ModelNotFoundException::class);
+
+    $this->assertModelExists($otherParticipant);
+});

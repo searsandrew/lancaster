@@ -8,6 +8,7 @@ use Flux\Flux;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -17,12 +18,18 @@ new #[Title('Run quiz')] class extends Component
     public ?Show $show = null;
     public string $search = '';
     public ?int $entryId = null;
+    public bool $editingCompletedEntry = false;
     public ?int $summaryScore = null;
     public ?string $summarySeconds = null;
     /** @var array<int, bool> */
     public array $answerCorrect = [];
     /** @var array<int, string> */
     public array $answerSeconds = [];
+    public ?int $editingParticipantId = null;
+    public string $participantFirstName = '';
+    public string $participantLastName = '';
+    public string $participantEmail = '';
+    public bool $participantMarketingOptIn = true;
 
     public function mount(): void
     {
@@ -83,20 +90,95 @@ new #[Title('Run quiz')] class extends Component
             return;
         }
 
-        $this->show = $show;
-        $this->entryId = $entry->id;
-        $this->summaryScore = $entry->score;
-        $this->summarySeconds = $entry->elapsed_ms ? (string) ($entry->elapsed_ms / 1000) : null;
-        $this->answerCorrect = [];
-        $this->answerSeconds = [];
+        $this->loadEntry($entry, false);
+    }
 
-        foreach ($show->quiz->questions as $question) {
-            $answer = $entry->answers->firstWhere('question_id', $question->id);
-            $this->answerCorrect[$question->id] = $answer?->is_correct ?? false;
-            $this->answerSeconds[$question->id] = $answer ? (string) ($answer->elapsed_ms / 1000) : '';
+    public function editResult(int $participantId): void
+    {
+        $participant = $this->participantForActiveShow($participantId);
+        $entry = $participant->quizEntry()->whereNotNull('completed_at')->firstOrFail();
+        $entry->loadMissing('answers');
+
+        $this->loadEntry($entry, true);
+    }
+
+    public function editParticipant(int $participantId): void
+    {
+        $participant = $this->participantForActiveShow($participantId);
+        $this->editingParticipantId = $participant->id;
+        $this->participantFirstName = $participant->first_name;
+        $this->participantLastName = $participant->last_name;
+        $this->participantEmail = $participant->email;
+        $this->participantMarketingOptIn = $participant->marketing_opt_in;
+        $this->resetValidation();
+        Flux::modal('edit-participant')->show();
+    }
+
+    public function saveParticipant(): void
+    {
+        $participant = $this->participantForActiveShow($this->editingParticipantId);
+        $this->participantFirstName = trim($this->participantFirstName);
+        $this->participantLastName = trim($this->participantLastName);
+        $this->participantEmail = mb_strtolower(trim($this->participantEmail));
+
+        $validated = $this->validate([
+            'participantFirstName' => ['required', 'string', 'max:255'],
+            'participantLastName' => ['required', 'string', 'max:255'],
+            'participantEmail' => [
+                'required',
+                'string',
+                'lowercase',
+                'email:rfc',
+                'max:255',
+                Rule::unique('participants', 'email')
+                    ->where('show_id', $participant->show_id)
+                    ->ignore($participant->id),
+            ],
+            'participantMarketingOptIn' => ['boolean'],
+        ]);
+
+        $participant->update([
+            'first_name' => $validated['participantFirstName'],
+            'last_name' => $validated['participantLastName'],
+            'email' => $validated['participantEmail'],
+            'marketing_opt_in' => $validated['participantMarketingOptIn'],
+        ]);
+
+        $this->editingParticipantId = null;
+        unset($this->participants);
+        Flux::modal('edit-participant')->close();
+        Flux::toast(variant: 'success', text: __('Contestant updated.'));
+    }
+
+    public function deleteEntry(int $participantId): void
+    {
+        $participant = $this->participantForActiveShow($participantId);
+        $entry = $participant->quizEntry;
+
+        if (! $entry) {
+            return;
         }
 
-        unset($this->participants, $this->entry);
+        if ($this->entryId === $entry->id) {
+            $this->cancel();
+        }
+
+        $entry->delete();
+        unset($this->participants);
+        Flux::toast(variant: 'success', text: __('Quiz entry deleted. The contestant can try again.'));
+    }
+
+    public function deleteParticipant(int $participantId): void
+    {
+        $participant = $this->participantForActiveShow($participantId);
+
+        if ($this->entryId === $participant->quizEntry?->id) {
+            $this->cancel();
+        }
+
+        $participant->delete();
+        unset($this->participants);
+        Flux::toast(variant: 'success', text: __('Contestant deleted.'));
     }
 
     public function complete(): void
@@ -110,7 +192,7 @@ new #[Title('Run quiz')] class extends Component
             return;
         }
 
-        if ($entry->completed_at) {
+        if ($entry->completed_at && ! $this->editingCompletedEntry) {
             $this->addError('entry', __('This quiz entry has already been completed.'));
 
             return;
@@ -126,15 +208,18 @@ new #[Title('Run quiz')] class extends Component
             return;
         }
 
+        $wasEditing = $this->editingCompletedEntry;
         $this->entryId = null;
+        $this->editingCompletedEntry = false;
         $this->reset('summaryScore', 'summarySeconds', 'answerCorrect', 'answerSeconds');
         unset($this->participants, $this->entry);
-        Flux::toast(variant: 'success', text: __('Quiz entry completed.'));
+        Flux::toast(variant: 'success', text: $wasEditing ? __('Quiz result updated.') : __('Quiz entry completed.'));
     }
 
     public function cancel(): void
     {
         $this->entryId = null;
+        $this->editingCompletedEntry = false;
         $this->reset('summaryScore', 'summarySeconds', 'answerCorrect', 'answerSeconds');
         $this->resetErrorBag();
         unset($this->entry);
@@ -195,10 +280,40 @@ new #[Title('Run quiz')] class extends Component
     private function finishEntry(QuizEntry $entry, int $score, int $elapsedMs): void
     {
         $entry->update([
+            'staff_user_id' => auth()->id(),
             'score' => $score,
             'elapsed_ms' => $elapsedMs,
-            'completed_at' => now(),
+            'completed_at' => $this->editingCompletedEntry ? $entry->completed_at : now(),
         ]);
+    }
+
+    private function loadEntry(QuizEntry $entry, bool $editingCompletedEntry): void
+    {
+        $this->show = $this->currentShow();
+        $this->entryId = $entry->id;
+        $this->editingCompletedEntry = $editingCompletedEntry;
+        $this->summaryScore = $entry->score;
+        $this->summarySeconds = $entry->elapsed_ms ? (string) ($entry->elapsed_ms / 1000) : null;
+        $this->answerCorrect = [];
+        $this->answerSeconds = [];
+
+        foreach ($entry->quiz->questions as $question) {
+            $answer = $entry->answers->firstWhere('question_id', $question->id);
+            $this->answerCorrect[$question->id] = $answer?->is_correct ?? false;
+            $this->answerSeconds[$question->id] = $answer ? (string) ($answer->elapsed_ms / 1000) : '';
+        }
+
+        $this->resetErrorBag();
+        unset($this->participants, $this->entry);
+    }
+
+    private function participantForActiveShow(?int $participantId): Participant
+    {
+        abort_unless($participantId !== null, 404);
+        $show = $this->currentShow();
+        abort_unless($show, 404);
+
+        return $show->participants()->with('quizEntry')->findOrFail($participantId);
     }
 
     private function entryForActiveShow(?Show $show): ?QuizEntry
@@ -246,7 +361,12 @@ new #[Title('Run quiz')] class extends Component
     @elseif ($this->entry)
         <flux:card class="space-y-6">
             <div>
-                <flux:heading size="lg">{{ $this->entry->participant->first_name }} {{ $this->entry->participant->last_name }}</flux:heading>
+                <div class="flex items-center gap-3">
+                    <flux:heading size="lg">{{ $this->entry->participant->first_name }} {{ $this->entry->participant->last_name }}</flux:heading>
+                    @if ($editingCompletedEntry)
+                        <flux:badge color="amber" size="sm">{{ __('Editing completed result') }}</flux:badge>
+                    @endif
+                </div>
                 <flux:text>{{ $this->entry->participant->email }}</flux:text>
             </div>
 
@@ -276,7 +396,7 @@ new #[Title('Run quiz')] class extends Component
 
                 <div class="flex justify-end gap-2">
                     <flux:button type="button" variant="ghost" wire:click="cancel">{{ __('Back to queue') }}</flux:button>
-                    <flux:button type="submit" variant="primary">{{ __('Complete quiz') }}</flux:button>
+                    <flux:button type="submit" variant="primary">{{ $editingCompletedEntry ? __('Save result') : __('Complete quiz') }}</flux:button>
                 </div>
             </form>
         </flux:card>
@@ -314,14 +434,49 @@ new #[Title('Run quiz')] class extends Component
                                     </flux:badge>
                                 </flux:table.cell>
                                 <flux:table.cell class="text-end">
-                                    <flux:button
-                                        type="button"
-                                        size="sm"
-                                        wire:click="start({{ $participant->id }})"
-                                        :disabled="$participant->quizEntry?->completed_at !== null"
-                                    >
-                                        {{ $participant->quizEntry ? __('Continue') : __('Start') }}
-                                    </flux:button>
+                                    <div class="flex items-center justify-end gap-2">
+                                        @if (! $participant->quizEntry?->completed_at)
+                                            <flux:button type="button" size="sm" wire:click="start({{ $participant->id }})">
+                                                {{ $participant->quizEntry ? __('Continue') : __('Start') }}
+                                            </flux:button>
+                                        @endif
+
+                                        <flux:dropdown position="bottom" align="end">
+                                            <flux:button type="button" size="sm" variant="ghost" icon="ellipsis-horizontal" :aria-label="__('Manage contestant')" />
+
+                                            <flux:menu>
+                                                <flux:menu.item as="button" type="button" wire:click="editParticipant({{ $participant->id }})">
+                                                    {{ __('Edit contestant') }}
+                                                </flux:menu.item>
+                                                @if ($participant->quizEntry?->completed_at)
+                                                    <flux:menu.item as="button" type="button" wire:click="editResult({{ $participant->id }})">
+                                                        {{ __('Edit result') }}
+                                                    </flux:menu.item>
+                                                @endif
+                                                @if ($participant->quizEntry)
+                                                    <flux:menu.item
+                                                        as="button"
+                                                        type="button"
+                                                        variant="danger"
+                                                        wire:click="deleteEntry({{ $participant->id }})"
+                                                        wire:confirm="{{ __('Delete this quiz result? The contestant will return to the waiting queue.') }}"
+                                                    >
+                                                        {{ __('Delete result') }}
+                                                    </flux:menu.item>
+                                                @endif
+                                                <flux:menu.separator />
+                                                <flux:menu.item
+                                                    as="button"
+                                                    type="button"
+                                                    variant="danger"
+                                                    wire:click="deleteParticipant({{ $participant->id }})"
+                                                    wire:confirm="{{ __('Delete this contestant and all of their quiz data?') }}"
+                                                >
+                                                    {{ __('Delete contestant') }}
+                                                </flux:menu.item>
+                                            </flux:menu>
+                                        </flux:dropdown>
+                                    </div>
                                 </flux:table.cell>
                             </flux:table.row>
                         @endforeach
@@ -330,4 +485,25 @@ new #[Title('Run quiz')] class extends Component
             @endif
         </div>
     @endif
+
+    <flux:modal name="edit-participant" class="md:w-[34rem]">
+        <form wire:submit="saveParticipant" class="space-y-6">
+            <div>
+                <flux:heading size="lg">{{ __('Edit contestant') }}</flux:heading>
+                <flux:subheading>{{ __('Update registration details and email consent.') }}</flux:subheading>
+            </div>
+
+            <div class="grid gap-4 sm:grid-cols-2">
+                <flux:input wire:model="participantFirstName" :label="__('First name')" required />
+                <flux:input wire:model="participantLastName" :label="__('Last name')" required />
+            </div>
+            <flux:input wire:model="participantEmail" type="email" :label="__('Email address')" required />
+            <flux:checkbox wire:model="participantMarketingOptIn" :label="__('Keep them subscribed to email updates')" />
+
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button type="button" variant="ghost">{{ __('Cancel') }}</flux:button></flux:modal.close>
+                <flux:button type="submit" variant="primary">{{ __('Save contestant') }}</flux:button>
+            </div>
+        </form>
+    </flux:modal>
 </section>
