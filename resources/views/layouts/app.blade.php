@@ -23,10 +23,10 @@
                         <flux:navbar.item icon="signal-slash" :label="__('No Active Quiz')" data-quiz-status="inactive" />
                     @endif
                 </flux:tooltip>
+                <flux:tooltip :content="__('Participants')" position="bottom">
+                    <flux:navbar.item icon="users" :href="route('participants.index')" :current="request()->routeIs('participants.*')" wire:navigate />
+                </flux:tooltip>
                 @if ($hasActiveQuiz)
-                    <flux:tooltip :content="__('Participants')" position="bottom">
-                        <flux:navbar.item icon="users" href="#" wire:navigate />
-                    </flux:tooltip>
                     <flux:tooltip :content="__('Documentation')" position="bottom">
                         <flux:navbar.item icon="tv" href="#" wire:navigate />
                     </flux:tooltip>
@@ -47,6 +47,9 @@
                 <flux:sidebar.group :heading="__('Platform')">
                     <flux:sidebar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
                         {{ __('Dashboard')  }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="users" :href="route('participants.index')" :current="request()->routeIs('participants.*')" wire:navigate>
+                        {{ __('Participants') }}
                     </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>

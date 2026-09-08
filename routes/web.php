@@ -17,6 +17,10 @@ Route::livewire('dashboard', 'pages::dashboard')
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
 
+Route::livewire('participants', 'pages::participants')
+    ->middleware(['auth', 'verified'])
+    ->name('participants.index');
+
 Route::redirect('quiz', 'dashboard')
     ->middleware(['auth', 'verified']);
 
