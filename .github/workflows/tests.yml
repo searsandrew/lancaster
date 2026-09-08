@@ -31,6 +31,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Add Flux license
+        run: composer config http-basic.composer.fluxui.dev "${FLUX_USERNAME}" "${FLUX_LICENSE_KEY}"
+        env:
+          FLUX_USERNAME: ${{ secrets.FLUX_USERNAME }}
+          FLUX_LICENSE_KEY: ${{ secrets.FLUX_LICENSE_KEY }}
+
       - name: Setup Application
         run: composer setup
 
