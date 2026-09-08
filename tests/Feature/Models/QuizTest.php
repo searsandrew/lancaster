@@ -23,6 +23,7 @@ test('quiz scoring modes are cast and have staff-facing labels', function (QuizS
 })->with([
     'per answer' => [QuizScoringMode::PerAnswer, 'Per-answer scoring'],
     'summary' => [QuizScoringMode::Summary, 'Summary scoring'],
+    'question answer' => [QuizScoringMode::QuestionAnswer, 'Question/answer quiz'],
 ]);
 
 test('quiz questions are returned in configured order', function () {

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['participant_id', 'quiz_id', 'staff_user_id', 'score', 'elapsed_ms', 'started_at', 'completed_at'])]
+#[Fillable(['participant_id', 'quiz_id', 'staff_user_id', 'score', 'elapsed_ms', 'started_at', 'completed_at', 'current_question_position', 'question_released_at'])]
 class QuizEntry extends Model
 {
     /** @use HasFactory<QuizEntryFactory> */
@@ -47,6 +47,8 @@ class QuizEntry extends Model
             'elapsed_ms' => 'integer',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'current_question_position' => 'integer',
+            'question_released_at' => 'datetime',
         ];
     }
 }

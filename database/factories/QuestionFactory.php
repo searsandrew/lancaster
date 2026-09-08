@@ -21,6 +21,7 @@ class QuestionFactory extends Factory
         return [
             'quiz_id' => Quiz::factory(),
             'prompt' => fake()->sentence(),
+            'correct_answer' => fake()->word(),
             'position' => fake()->unique()->numberBetween(1, 1000),
         ];
     }

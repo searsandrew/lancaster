@@ -33,8 +33,11 @@ new #[Title('Configure show')] class extends Component {
     public string $leaderboardMessage = '';
     public string $advertisementEmbedUrl = '';
     public string $newQuestion = '';
+    public string $newCorrectAnswer = '';
     /** @var array<int, string> */
     public array $questionPrompts = [];
+    /** @var array<int, string> */
+    public array $correctAnswers = [];
 
     public function mount(Show $show): void
     {
@@ -65,8 +68,15 @@ new #[Title('Configure show')] class extends Component {
             return;
         }
 
-        if ($validated['scoringMode'] === 'per_answer' && $this->show->quiz->questions()->doesntExist()) {
-            $this->addError('newQuestion', __('Add at least one question for per-answer scoring.'));
+        if ($validated['scoringMode'] !== 'summary' && $this->show->quiz->questions()->doesntExist()) {
+            $this->addError('newQuestion', $validated['scoringMode'] === 'per_answer'
+                ? __('Add at least one question for per-answer scoring.')
+                : __('Add at least one question for question/answer mode.'));
+            return;
+        }
+
+        if ($validated['scoringMode'] === 'question_answer' && $this->show->quiz->questions()->whereNull('correct_answer')->exists()) {
+            $this->addError('newCorrectAnswer', __('Every question needs a correct answer for question/answer mode.'));
             return;
         }
 
@@ -111,18 +121,32 @@ new #[Title('Configure show')] class extends Component {
 
     public function addQuestion(): void
     {
-        $validated = $this->validate(['newQuestion' => ['required', 'string', 'max:1000']]);
+        $validated = $this->validate([
+            'newQuestion' => ['required', 'string', 'max:1000'],
+            'newCorrectAnswer' => [Rule::requiredIf($this->scoringMode === 'question_answer'), 'nullable', 'string', 'max:1000'],
+        ]);
         $position = ((int) $this->show->quiz->questions()->max('position')) + 1;
-        $this->show->quiz->questions()->create(['prompt' => $validated['newQuestion'], 'position' => $position]);
+        $this->show->quiz->questions()->create([
+            'prompt' => trim($validated['newQuestion']),
+            'correct_answer' => trim($validated['newCorrectAnswer'] ?? '') ?: null,
+            'position' => $position,
+        ]);
         $this->newQuestion = '';
+        $this->newCorrectAnswer = '';
         $this->refreshQuestions();
     }
 
     public function updateQuestion(int $questionId): void
     {
         $question = $this->question($questionId);
-        $validated = $this->validate(["questionPrompts.{$questionId}" => ['required', 'string', 'max:1000']]);
-        $question->update(['prompt' => $validated['questionPrompts'][$questionId]]);
+        $validated = $this->validate([
+            "questionPrompts.{$questionId}" => ['required', 'string', 'max:1000'],
+            "correctAnswers.{$questionId}" => [Rule::requiredIf($this->scoringMode === 'question_answer'), 'nullable', 'string', 'max:1000'],
+        ]);
+        $question->update([
+            'prompt' => trim($validated['questionPrompts'][$questionId]),
+            'correct_answer' => trim($validated['correctAnswers'][$questionId] ?? '') ?: null,
+        ]);
     }
 
     public function removeQuestion(int $questionId): void
@@ -184,6 +208,7 @@ new #[Title('Configure show')] class extends Component {
     private function refreshQuestions(): void
     {
         $this->questionPrompts = $this->show->quiz->questions()->pluck('prompt', 'id')->all();
+        $this->correctAnswers = $this->show->quiz->questions()->pluck('correct_answer', 'id')->map(fn (?string $answer): string => $answer ?? '')->all();
     }
 
     private function normalizePositions(): void
@@ -226,9 +251,10 @@ new #[Title('Configure show')] class extends Component {
 
         <flux:card class="space-y-6">
             <flux:heading size="lg">{{ __('Quiz scoring') }}</flux:heading>
-            <flux:radio.group wire:model.live="scoringMode" variant="cards" class="grid sm:grid-cols-2">
+            <flux:radio.group wire:model.live="scoringMode" variant="cards" class="grid lg:grid-cols-3">
                 <flux:radio value="per_answer" :label="__('Per-answer scoring')" :description="__('Record each answer individually.')" />
                 <flux:radio value="summary" :label="__('Summary scoring')" :description="__('Enter one final score.')" />
+                <flux:radio value="question_answer" :label="__('Question/answer quiz')" :description="__('Contestants answer released questions on their phone.')" />
             </flux:radio.group>
             @if ($scoringMode === 'summary')
                 <flux:input wire:model="maximumScore" type="number" min="1" max="65535" :label="__('Maximum score')" />
@@ -238,19 +264,24 @@ new #[Title('Configure show')] class extends Component {
             @else
                 <div class="space-y-3">
                     @foreach ($questionPrompts as $questionId => $prompt)
-                        <div class="flex items-start gap-2" wire:key="question-{{ $questionId }}">
-                            <flux:input wire:model="questionPrompts.{{ $questionId }}" class="flex-1" />
+                        <div class="grid items-start gap-2 lg:grid-cols-[1fr_1fr_auto]" wire:key="question-{{ $questionId }}">
+                            <flux:input wire:model="questionPrompts.{{ $questionId }}" :label="__('Question')" />
+                            <flux:input wire:model="correctAnswers.{{ $questionId }}" :label="__('Correct answer')" />
+                            <div class="flex gap-2 lg:pt-6">
                             <flux:button type="button" wire:click="moveQuestion({{ $questionId }}, 'up')" size="sm">{{ __('Up') }}</flux:button>
                             <flux:button type="button" wire:click="moveQuestion({{ $questionId }}, 'down')" size="sm">{{ __('Down') }}</flux:button>
                             <flux:button type="button" wire:click="updateQuestion({{ $questionId }})" size="sm">{{ __('Save') }}</flux:button>
                             <flux:button type="button" wire:click="removeQuestion({{ $questionId }})" variant="danger" size="sm">{{ __('Remove') }}</flux:button>
+                            </div>
                         </div>
                     @endforeach
-                    <div class="flex items-start gap-2">
-                        <flux:input wire:model="newQuestion" :placeholder="__('New question or part')" class="flex-1" />
+                    <div class="grid items-end gap-2 lg:grid-cols-[1fr_1fr_auto]">
+                        <flux:input wire:model="newQuestion" :label="__('New question')" />
+                        <flux:input wire:model="newCorrectAnswer" :label="__('Correct answer')" />
                         <flux:button type="button" wire:click="addQuestion">{{ __('Add question') }}</flux:button>
                     </div>
                     <flux:error name="newQuestion" />
+                    <flux:error name="newCorrectAnswer" />
                 </div>
             @endif
 

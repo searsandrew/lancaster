@@ -151,6 +151,15 @@ new #[Title('Dashboard')] class extends Component
         Flux::modal('edit-participant')->show();
     }
 
+    public function generateRecoveryCode(int $participantId): void
+    {
+        $participant = $this->participantForActiveShow($participantId);
+        $participant->refreshRecoveryCode();
+        unset($this->participants, $this->entry);
+
+        Flux::toast(variant: 'success', text: __('A new recovery code was generated.'));
+    }
+
     public function saveParticipant(): void
     {
         $participant = $this->participantForActiveShow($this->editingParticipantId);
@@ -237,6 +246,8 @@ new #[Title('Dashboard')] class extends Component
 
         if ($entry->quiz->scoring_mode === QuizScoringMode::Summary) {
             $this->completeSummaryEntry($entry);
+        } elseif ($entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer) {
+            $this->completeQuestionAnswerEntry($entry);
         } else {
             $this->completePerAnswerEntry($entry);
         }
@@ -251,6 +262,50 @@ new #[Title('Dashboard')] class extends Component
         $this->reset('summaryScore', 'summarySeconds', 'answerCorrect', 'answerSeconds');
         unset($this->participants, $this->entry);
         Flux::toast(variant: 'success', text: $wasEditing ? __('Quiz result updated.') : __('Quiz entry completed.'));
+    }
+
+    public function sendQuestion(): void
+    {
+        $entry = $this->entryForActiveShow($this->currentShow());
+        abort_unless($entry && $entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer && ! $entry->completed_at, 404);
+
+        if ($entry->current_question_position !== null) {
+            $this->addError('entry', __('Review the current answer before sending another question.'));
+            return;
+        }
+
+        $nextQuestion = $entry->quiz->questions->first(
+            fn ($question): bool => ! $entry->answers->contains('position', $question->position),
+        );
+
+        if (! $nextQuestion) {
+            $this->addError('entry', __('All questions have already been answered.'));
+            return;
+        }
+
+        $entry->update([
+            'staff_user_id' => auth()->id(),
+            'current_question_position' => $nextQuestion->position,
+            'question_released_at' => now(),
+        ]);
+        unset($this->entry);
+    }
+
+    public function reviewAnswer(?bool $isCorrect = null): void
+    {
+        $entry = $this->entryForActiveShow($this->currentShow());
+        abort_unless($entry && $entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer, 404);
+
+        $answer = $entry->answers->firstWhere('position', $entry->current_question_position);
+        abort_unless($answer && ! $answer->reviewed_at, 404);
+        $isCorrect ??= $answer->is_correct;
+
+        DB::transaction(function () use ($entry, $answer, $isCorrect): void {
+            $answer->update(['is_correct' => $isCorrect, 'reviewed_at' => now()]);
+            $entry->update(['current_question_position' => null, 'question_released_at' => null]);
+        });
+
+        unset($this->entry, $this->participants);
     }
 
     public function cancel(): void
@@ -312,6 +367,20 @@ new #[Title('Dashboard')] class extends Component
 
             $this->finishEntry($entry, $score, $elapsedMs);
         });
+    }
+
+    private function completeQuestionAnswerEntry(QuizEntry $entry): void
+    {
+        if ($entry->quiz->questions->isEmpty() || $entry->answers->whereNotNull('reviewed_at')->count() !== $entry->quiz->questions->count()) {
+            $this->addError('entry', __('Every question must be answered and accepted before publishing.'));
+            return;
+        }
+
+        $this->finishEntry(
+            $entry,
+            $entry->answers->where('is_correct', true)->count(),
+            $entry->answers->sum('elapsed_ms'),
+        );
     }
 
     private function finishEntry(QuizEntry $entry, int $score, int $elapsedMs): void
@@ -438,6 +507,16 @@ new #[Title('Dashboard')] class extends Component
                         </flux:badge>
                     </div>
                     <flux:text class="mt-1">{{ $this->entry->participant->email }}</flux:text>
+                    @if ($this->entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer)
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                            @if ($this->entry->participant->recovery_code)
+                                <flux:badge color="zinc">{{ __('Recovery code: :code', ['code' => $this->entry->participant->recovery_code]) }}</flux:badge>
+                            @endif
+                            <flux:button type="button" size="xs" variant="ghost" wire:click="generateRecoveryCode({{ $this->entry->participant->id }})">
+                                {{ $this->entry->participant->recovery_code ? __('Generate new code') : __('Generate recovery code') }}
+                            </flux:button>
+                        </div>
+                    @endif
                     <flux:text class="mt-1 text-xs">
                         {{ __('Started :time', ['time' => $this->entry->started_at->diffForHumans()]) }}
                     </flux:text>
@@ -477,7 +556,53 @@ new #[Title('Dashboard')] class extends Component
                     </flux:callout>
                 @endif
 
-                @if ($this->entry->quiz->scoring_mode === QuizScoringMode::Summary)
+                @if ($this->entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer)
+                    @php($currentPosition = $this->entry->current_question_position)
+                    @php($currentQuestion = $this->entry->quiz->questions->firstWhere('position', $currentPosition))
+                    @php($currentAnswer = $this->entry->answers->firstWhere('position', $currentPosition))
+
+                    <div wire:poll.1s class="space-y-5">
+                        @if ($currentQuestion && $currentAnswer)
+                            <flux:card class="space-y-5 border-amber-300 dark:border-amber-400/30">
+                                <div>
+                                    <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :current of :total', ['current' => $currentQuestion->position, 'total' => $this->entry->quiz->questions->count()]) }}</flux:text>
+                                    <flux:heading>{{ $currentQuestion->prompt }}</flux:heading>
+                                </div>
+                                <div class="rounded-lg bg-zinc-100 p-4 dark:bg-zinc-900">
+                                    <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Contestant answer') }}</flux:text>
+                                    <div class="mt-1 text-lg font-medium">{{ $currentAnswer->submitted_answer }}</div>
+                                    <flux:text class="mt-1">{{ __('Answered in :seconds seconds', ['seconds' => number_format($currentAnswer->elapsed_ms / 1000, 3)]) }}</flux:text>
+                                </div>
+                                <flux:callout :variant="$currentAnswer->is_correct ? 'success' : 'warning'">
+                                    {{ $currentAnswer->is_correct ? __('Automatically matched the configured answer.') : __('Did not match the configured answer: :answer', ['answer' => $currentQuestion->correct_answer]) }}
+                                </flux:callout>
+                                <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                                    <flux:button type="button" variant="ghost" wire:click="reviewAnswer({{ $currentAnswer->is_correct ? 'false' : 'true' }})">
+                                        {{ $currentAnswer->is_correct ? __('Override as incorrect') : __('Override as correct') }}
+                                    </flux:button>
+                                    <flux:button type="button" variant="primary" wire:click="reviewAnswer">{{ __('Accept answer') }}</flux:button>
+                                </div>
+                            </flux:card>
+                        @elseif ($currentQuestion)
+                            <flux:callout icon="clock">{{ __('Question :number sent. Waiting for the contestant’s answer…', ['number' => $currentQuestion->position]) }}</flux:callout>
+                        @elseif ($this->entry->answers->whereNotNull('reviewed_at')->count() < $this->entry->quiz->questions->count())
+                            <flux:button type="button" variant="primary" icon="paper-airplane" wire:click="sendQuestion">
+                                {{ $this->entry->answers->isEmpty() ? __('Send first question') : __('Send next question') }}
+                            </flux:button>
+                        @else
+                            <flux:callout variant="success" icon="check-circle">{{ __('All answers are accepted. Complete and publish the result below.') }}</flux:callout>
+                        @endif
+
+                        <div class="grid gap-2 sm:grid-cols-2">
+                            @foreach ($this->entry->answers->whereNotNull('reviewed_at') as $answer)
+                                <div wire:key="reviewed-answer-{{ $answer->id }}" class="flex items-center justify-between rounded-lg border border-zinc-200 p-3 dark:border-white/10">
+                                    <span>{{ __('Question :number', ['number' => $answer->position]) }} · {{ number_format($answer->elapsed_ms / 1000, 3) }}s</span>
+                                    <flux:badge :color="$answer->is_correct ? 'green' : 'red'">{{ $answer->is_correct ? __('Correct') : __('Incorrect') }}</flux:badge>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @elseif ($this->entry->quiz->scoring_mode === QuizScoringMode::Summary)
                     <div class="grid gap-4 sm:grid-cols-2">
                         <flux:input
                             wire:model="summaryScore"
@@ -580,6 +705,9 @@ new #[Title('Dashboard')] class extends Component
                                 <flux:table.cell>
                                     <div class="font-medium">{{ $participant->first_name }} {{ $participant->last_name }}</div>
                                     <div class="text-sm text-zinc-500">{{ $participant->email }}</div>
+                                    @if ($show->quiz->scoring_mode === QuizScoringMode::QuestionAnswer && $participant->recovery_code)
+                                        <div class="mt-1 font-mono text-xs text-zinc-500">{{ __('Recovery: :code', ['code' => $participant->recovery_code]) }}</div>
+                                    @endif
                                 </flux:table.cell>
                                 <flux:table.cell>{{ $participant->created_at->diffForHumans() }}</flux:table.cell>
                                 <flux:table.cell>
@@ -607,6 +735,11 @@ new #[Title('Dashboard')] class extends Component
                                                 <flux:menu.item as="button" type="button" wire:click="editParticipant({{ $participant->id }})">
                                                     {{ __('Edit contestant') }}
                                                 </flux:menu.item>
+                                                @if ($show->quiz->scoring_mode === QuizScoringMode::QuestionAnswer)
+                                                    <flux:menu.item as="button" type="button" wire:click="generateRecoveryCode({{ $participant->id }})">
+                                                        {{ $participant->recovery_code ? __('Generate new recovery code') : __('Generate recovery code') }}
+                                                    </flux:menu.item>
+                                                @endif
                                                 @if ($participant->quizEntry?->completed_at)
                                                     <flux:menu.item as="button" type="button" wire:click="editResult({{ $participant->id }})">
                                                         {{ __('Edit result') }}
