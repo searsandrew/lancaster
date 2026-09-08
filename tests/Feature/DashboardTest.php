@@ -27,6 +27,34 @@ test('authenticated users can visit the dashboard', function () {
         ->assertSeeText($show->name);
 });
 
+test('the navigation indicates when a quiz is active', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create();
+
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertDontSeeText('No Active Quiz')
+        ->assertSee('data-quiz-status="active"', false)
+        ->assertSee('href="'.route('dashboard').'"', false)
+        ->assertSee('data-logo-location="desktop"', false)
+        ->assertSee('data-logo-location="mobile"', false);
+});
+
+test('the navigation indicates when no quiz is active', function () {
+    $user = User::factory()->create();
+    Show::factory()->active()->create();
+
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertSeeText('No Active Quiz')
+        ->assertSee('data-quiz-status="inactive"', false)
+        ->assertDontSee('data-quiz-status="active"', false)
+        ->assertSee('href="'.route('shows.index').'"', false)
+        ->assertSee('data-logo-location="desktop"', false)
+        ->assertSee('data-logo-location="mobile"', false);
+});
+
 test('the previous quiz URL redirects authenticated staff to the dashboard', function () {
     $user = User::factory()->create();
 

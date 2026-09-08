@@ -2,10 +2,12 @@
 
 namespace App\Providers;
 
+use App\Models\Show;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use SocialiteProviders\Manager\SocialiteWasCalled;
@@ -28,6 +30,13 @@ class AppServiceProvider extends ServiceProvider
     {
         Event::listen(function (SocialiteWasCalled $event): void {
             $event->extendSocialite('microsoft', MicrosoftProvider::class);
+        });
+
+        View::composer('layouts::app', function ($view): void {
+            $view->with(
+                'hasActiveQuiz',
+                Show::query()->activeAt()->whereHas('quiz')->exists(),
+            );
         });
 
         $this->configureDefaults();
