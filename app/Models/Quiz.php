@@ -19,6 +19,8 @@ class Quiz extends Model
 
     /**
      * Get the show that owns the quiz.
+     *
+     * @return BelongsTo<Show, $this>
      */
     public function show(): BelongsTo
     {
@@ -27,6 +29,8 @@ class Quiz extends Model
 
     /**
      * Get the quiz questions in their configured order.
+     *
+     * @return HasMany<Question, $this>
      */
     public function questions(): HasMany
     {

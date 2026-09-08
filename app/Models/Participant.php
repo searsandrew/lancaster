@@ -15,6 +15,7 @@ class Participant extends Model
     /** @use HasFactory<ParticipantFactory> */
     use HasFactory;
 
+    /** @return BelongsTo<Show, $this> */
     public function show(): BelongsTo
     {
         return $this->belongsTo(Show::class);

@@ -17,6 +17,8 @@ class Question extends Model
 
     /**
      * Get the quiz that owns the question.
+     *
+     * @return BelongsTo<Quiz, $this>
      */
     public function quiz(): BelongsTo
     {

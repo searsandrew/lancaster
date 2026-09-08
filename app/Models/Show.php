@@ -13,6 +13,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
+/**
+ * @property ShowActivationMode $activation_mode
+ * @property bool $is_active
+ * @property Carbon|null $starts_at
+ * @property Carbon|null $ends_at
+ */
 #[Fillable(['name', 'slug', 'activation_mode', 'is_active', 'starts_at', 'ends_at'])]
 class Show extends Model
 {
@@ -26,6 +32,8 @@ class Show extends Model
 
     /**
      * Get the quiz configured for this show.
+     *
+     * @return HasOne<Quiz, $this>
      */
     public function quiz(): HasOne
     {

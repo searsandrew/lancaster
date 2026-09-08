@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +11,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Contracts\LoginResponse;
 use Laravel\Socialite\Facades\Socialite;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 class MicrosoftAuthenticationController extends Controller
@@ -39,7 +39,7 @@ class MicrosoftAuthenticationController extends Controller
         $microsoftId = $microsoftUser->getId();
         $email = $microsoftUser->getEmail();
 
-        if (! is_string($microsoftId) || $microsoftId === '' || ! is_string($email) || $email === '') {
+        if ($microsoftId === '' || ! is_string($email) || $email === '') {
             throw ValidationException::withMessages([
                 'email' => __('Microsoft did not provide the account information required to log in.'),
             ]);
