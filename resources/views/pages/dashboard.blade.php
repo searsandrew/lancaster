@@ -511,15 +511,14 @@ new #[Title('Dashboard')] class extends Component
                                     <flux:text class="text-xs font-semibold uppercase tracking-wider">{{ __('Question :current of :total', ['current' => $loop->iteration, 'total' => $loop->count]) }}</flux:text>
                                     <flux:heading>{{ $question->prompt }}</flux:heading>
                                 </div>
-                                <flux:switch wire:model="answerCorrect.{{ $question->id }}" :label="__('Correct')" />
+                                <flux:toggle icon="check-circle" color="emerald" wire:model="answerCorrect.{{ $question->id }}" />
                                 <flux:input
                                     wire:model="answerSeconds.{{ $question->id }}"
                                     type="number"
                                     inputmode="decimal"
                                     step="0.001"
                                     min="0.001"
-                                    :label="__('Time in seconds')"
-                                    placeholder="0.000"
+                                    placeholder="Time (in Sec)"
                                     required
                                 />
                             </flux:card>
