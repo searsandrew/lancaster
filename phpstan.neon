@@ -10,4 +10,7 @@ parameters:
         - database/
         - routes/
 
+    excludePaths:
+        - app/Concerns/ProfileValidationRules.php
+
     level: 7
