@@ -571,7 +571,7 @@ new #[Title('Dashboard')] class extends Component
                                 @if ($currentQuestion->sales_notes)
                                     <flux:callout icon="chat-bubble-left-right">
                                         <flux:callout.heading>{{ __('Sales notes') }}</flux:callout.heading>
-                                        <flux:callout.text><div class="whitespace-pre-line">{{ $currentQuestion->sales_notes }}</div></flux:callout.text>
+                                        <flux:callout.text><div class="prose prose-sm dark:prose-invert">{!! App\Services\SafeRichText::sanitize($currentQuestion->sales_notes) !!}</div></flux:callout.text>
                                     </flux:callout>
                                 @endif
                                 <div class="rounded-lg bg-zinc-100 p-4 dark:bg-zinc-900">
@@ -595,7 +595,7 @@ new #[Title('Dashboard')] class extends Component
                                 @if ($currentQuestion->sales_notes)
                                     <flux:callout icon="chat-bubble-left-right">
                                         <flux:callout.heading>{{ __('Sales notes') }}</flux:callout.heading>
-                                        <flux:callout.text><div class="whitespace-pre-line">{{ $currentQuestion->sales_notes }}</div></flux:callout.text>
+                                        <flux:callout.text><div class="prose prose-sm dark:prose-invert">{!! App\Services\SafeRichText::sanitize($currentQuestion->sales_notes) !!}</div></flux:callout.text>
                                     </flux:callout>
                                 @endif
                             </div>
@@ -652,7 +652,7 @@ new #[Title('Dashboard')] class extends Component
                                     @if ($question->sales_notes)
                                         <div class="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-100">
                                             <div class="font-semibold">{{ __('Sales notes') }}</div>
-                                            <div class="mt-1 whitespace-pre-line">{{ $question->sales_notes }}</div>
+                                            <div class="prose prose-sm mt-1 dark:prose-invert">{!! App\Services\SafeRichText::sanitize($question->sales_notes) !!}</div>
                                         </div>
                                     @endif
                                 </div>

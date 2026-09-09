@@ -136,13 +136,17 @@ test('staff can add update and remove quiz questions', function () {
 
     $component
         ->set("questionPrompts.{$question->id}", 'What alloy is this part made from?')
-        ->set("salesNotes.{$question->id}", 'Explain why this alloy reduces shipping costs.')
         ->call('updateQuestion', $question->id)
+        ->assertHasNoErrors()
+        ->call('editNotes', $question->id)
+        ->assertSet('notesEditorContent', "Discuss corrosion resistance.\nMention the lightweight design.")
+        ->set('notesEditorContent', '<p>Explain why this alloy <strong>reduces shipping costs</strong>.</p>')
+        ->call('saveNotes')
         ->assertHasNoErrors();
 
     expect($question->fresh())
         ->prompt->toBe('What alloy is this part made from?')
-        ->sales_notes->toBe('Explain why this alloy reduces shipping costs.');
+        ->sales_notes->toBe('<p>Explain why this alloy <strong>reduces shipping costs</strong>.</p>');
 
     $component->call('removeQuestion', $question->id);
 
@@ -173,7 +177,7 @@ test('staff can reorder quiz questions', function () {
 
     Livewire::actingAs($user)
         ->test('pages::shows.edit', ['show' => $show])
-        ->call('moveQuestion', $second->id, 'up');
+        ->call('sortQuestion', $second->id, 0);
 
     expect($quiz->questions()->pluck('id')->all())->toBe([$second->id, $first->id]);
 });
@@ -210,7 +214,7 @@ test('staff see a preview before saving perfect score artwork', function () {
         ->assertSeeHtml('alt="Selected perfect score artwork preview"')
         ->assertSee('New image ready to save.')
         ->assertSee('Clear image')
-        ->assertDontSee('Drop a perfect score image here or click to browse');
+        ->assertDontSee('Drop a perfect score icon or browse');
 });
 
 test('staff can clear a pending perfect score image', function () {
@@ -225,7 +229,7 @@ test('staff can clear a pending perfect score image', function () {
         ->set('perfectScoreImage', $image)
         ->call('clearPerfectScoreImage')
         ->assertSet('perfectScoreImage', null)
-        ->assertSee('Drop a perfect score image here or click to browse');
+        ->assertSee('Drop a perfect score icon or browse');
 });
 
 test('staff can remove saved perfect score artwork', function () {
@@ -240,9 +244,9 @@ test('staff can remove saved perfect score artwork', function () {
     Livewire::actingAs($user)
         ->test('pages::shows.edit', ['show' => $show])
         ->assertSee('Clear image')
-        ->assertDontSee('Drop a perfect score image here or click to browse')
+        ->assertDontSee('Drop a perfect score icon or browse')
         ->call('clearPerfectScoreImage')
-        ->assertSee('Drop a perfect score image here or click to browse');
+        ->assertSee('Drop a perfect score icon or browse');
 
     expect($quiz->fresh()->perfect_score_image_path)->toBeNull();
     Storage::disk('public')->assertMissing('perfect-score-images/logo.png');

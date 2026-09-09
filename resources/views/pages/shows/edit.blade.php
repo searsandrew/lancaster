@@ -5,6 +5,7 @@ use App\Enums\ShowActivationMode;
 use App\Models\Customer;
 use App\Models\Question;
 use App\Models\Show;
+use App\Services\SafeRichText;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
@@ -39,6 +40,9 @@ new #[Title('Configure show')] class extends Component {
     public string $newQuestion = '';
     public string $newCorrectAnswer = '';
     public string $newSalesNotes = '';
+    public string $activeTab = 'quiz';
+    public ?int $editingNotesQuestionId = null;
+    public string $notesEditorContent = '';
     /** @var array<int, string> */
     public array $questionPrompts = [];
     /** @var array<int, string> */
@@ -146,7 +150,7 @@ new #[Title('Configure show')] class extends Component {
         $this->show->quiz->questions()->create([
             'prompt' => trim($validated['newQuestion']),
             'correct_answer' => trim($validated['newCorrectAnswer'] ?? '') ?: null,
-            'sales_notes' => trim($validated['newSalesNotes']) ?: null,
+            'sales_notes' => SafeRichText::sanitize(trim($validated['newSalesNotes'])) ?: null,
             'position' => $position,
         ]);
         $this->newQuestion = '';
@@ -166,8 +170,9 @@ new #[Title('Configure show')] class extends Component {
         $question->update([
             'prompt' => trim($validated['questionPrompts'][$questionId]),
             'correct_answer' => trim($validated['correctAnswers'][$questionId] ?? '') ?: null,
-            'sales_notes' => trim($validated['salesNotes'][$questionId] ?? '') ?: null,
         ]);
+
+        Flux::toast(variant: 'success', text: __('Question saved.'));
     }
 
     public function removeQuestion(int $questionId): void
@@ -200,27 +205,68 @@ new #[Title('Configure show')] class extends Component {
         Flux::toast(variant: 'success', text: __('Perfect score image removed.'));
     }
 
-    public function moveQuestion(int $questionId, string $direction): void
+    public function sortQuestion(int $questionId, int $position): void
     {
-        abort_unless(in_array($direction, ['up', 'down'], true), 404);
         $question = $this->question($questionId);
-        $adjacent = $this->show->quiz->questions()
-            ->where('position', $direction === 'up' ? '<' : '>', $question->position)
-            ->orderBy('position', $direction === 'up' ? 'desc' : 'asc')
-            ->first();
+        $questions = $this->show->quiz->questions()->get();
+        $position = min(max($position, 0), $questions->count() - 1);
+        $currentPosition = $question->position - 1;
 
-        if (! $adjacent) {
+        if ($position === $currentPosition) {
             return;
         }
 
-        $questionPosition = $question->position;
-        $adjacentPosition = $adjacent->position;
-        DB::transaction(function () use ($question, $adjacent, $questionPosition, $adjacentPosition): void {
+        DB::transaction(function () use ($question, $position, $currentPosition): void {
             $question->update(['position' => 0]);
-            $adjacent->update(['position' => $questionPosition]);
-            $question->update(['position' => $adjacentPosition]);
+
+            if ($position < $currentPosition) {
+                $this->show->quiz->questions()
+                    ->whereBetween('position', [$position + 1, $currentPosition])
+                    ->orderByDesc('position')
+                    ->get()
+                    ->each(fn (Question $question): bool => $question->update(['position' => $question->position + 1]));
+            } else {
+                $this->show->quiz->questions()
+                    ->whereBetween('position', [$currentPosition + 2, $position + 1])
+                    ->orderBy('position')
+                    ->get()
+                    ->each(fn (Question $question): bool => $question->update(['position' => $question->position - 1]));
+            }
+
+            $question->update(['position' => $position + 1]);
         });
+
         $this->refreshQuestions();
+    }
+
+    public function editNotes(?int $questionId = null): void
+    {
+        $this->editingNotesQuestionId = $questionId;
+        $this->notesEditorContent = $questionId === null
+            ? $this->newSalesNotes
+            : ($this->salesNotes[$this->question($questionId)->id] ?? '');
+        $this->resetValidation('notesEditorContent');
+
+        Flux::modal('question-notes')->show();
+    }
+
+    public function saveNotes(): void
+    {
+        $validated = $this->validate([
+            'notesEditorContent' => ['nullable', 'string', 'max:5000'],
+        ]);
+        $notes = SafeRichText::sanitize(trim($validated['notesEditorContent'])) ?: null;
+
+        if ($this->editingNotesQuestionId === null) {
+            $this->newSalesNotes = $notes ?? '';
+        } else {
+            $question = $this->question($this->editingNotesQuestionId);
+            $question->update(['sales_notes' => $notes]);
+            $this->salesNotes[$question->id] = $notes ?? '';
+        }
+
+        Flux::modal('question-notes')->close();
+        Flux::toast(variant: 'success', text: __('Sales notes saved.'));
     }
 
     /** @return array<string, array<int, mixed>> */
@@ -274,179 +320,167 @@ new #[Title('Configure show')] class extends Component {
         <flux:breadcrumbs.item>{{ $show->name }}</flux:breadcrumbs.item>
     </flux:breadcrumbs>
 
-    <form wire:submit="save" class="space-y-8">
-        <flux:card class="space-y-6">
-            <flux:heading size="lg">{{ __('Show details') }}</flux:heading>
-            <flux:input wire:model="name" :label="__('Show name')" required />
-            <flux:radio.group wire:model.live="activationMode" variant="cards" :label="__('Activation')" class="grid sm:grid-cols-2">
-                <flux:radio value="manual" :label="__('Manual')" :description="__('Staff controls activation.')" />
-                <flux:radio value="scheduled" :label="__('Scheduled')" :description="__('Activates during its schedule.')" />
-            </flux:radio.group>
-            @if ($activationMode === 'manual')
-                <flux:switch wire:model="isActive" :label="__('Show is active')" />
-            @else
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <flux:date-picker wire:model="startDate" type="input" :label="__('Start date')" />
-                    <flux:time-picker wire:model="startTime" type="input" :label="__('Start time')" />
-                    <flux:date-picker wire:model="endDate" type="input" :label="__('End date')" />
-                    <flux:time-picker wire:model="endTime" type="input" :label="__('End time')" />
-                </div>
-            @endif
+    <form wire:submit="save" class="space-y-6">
+        <flux:tab.group>
+            <flux:tabs wire:model="activeTab">
+                <flux:tab name="quiz" icon="list-bullet">{{ __('Quiz') }}</flux:tab>
+                <flux:tab name="settings" icon="cog-6-tooth">{{ __('Settings') }}</flux:tab>
+            </flux:tabs>
 
-        </flux:card>
-
-        <flux:card class="space-y-6">
-            <flux:heading size="lg">{{ __('Quiz scoring') }}</flux:heading>
-            <flux:select wire:model="customerId" :label="__('Customer')" :description="__('Email opt-ins use this customer’s configured provider connection.')">
-                <flux:select.option value="">{{ __('No customer') }}</flux:select.option>
-                @foreach ($this->customers as $customer)
-                    <flux:select.option :value="$customer->id" wire:key="customer-{{ $customer->id }}">{{ $customer->name }}</flux:select.option>
-                @endforeach
-            </flux:select>
-            <flux:radio.group wire:model.live="scoringMode" variant="cards" class="grid lg:grid-cols-3">
-                <flux:radio value="per_answer" :label="__('Per-answer scoring')" :description="__('Record each answer individually.')" />
-                <flux:radio value="summary" :label="__('Summary scoring')" :description="__('Enter one final score.')" />
-                <flux:radio value="question_answer" :label="__('Question/answer quiz')" :description="__('Contestants answer released questions on their phone.')" />
-            </flux:radio.group>
-            @if ($scoringMode === 'summary')
-                <flux:input wire:model="maximumScore" type="number" min="1" max="65535" :label="__('Maximum score')" />
-                @if ($questionPrompts)
-                    <flux:callout>{{ __('Questions are retained if you switch back to per-answer scoring.') }}</flux:callout>
-                @endif
-            @else
-                <div class="space-y-3">
-                    @foreach ($questionPrompts as $questionId => $prompt)
-                        <div class="grid items-start gap-2 lg:grid-cols-[1fr_1fr_auto]" wire:key="question-{{ $questionId }}">
-                            <flux:input wire:model="questionPrompts.{{ $questionId }}" :label="__('Question')" />
-                            <flux:input wire:model="correctAnswers.{{ $questionId }}" :label="__('Correct answer')" />
-                            <div class="flex gap-2 lg:pt-6">
-                            <flux:button type="button" wire:click="moveQuestion({{ $questionId }}, 'up')" size="sm">{{ __('Up') }}</flux:button>
-                            <flux:button type="button" wire:click="moveQuestion({{ $questionId }}, 'down')" size="sm">{{ __('Down') }}</flux:button>
-                            <flux:button type="button" wire:click="updateQuestion({{ $questionId }})" size="sm">{{ __('Save') }}</flux:button>
-                            <flux:button type="button" wire:click="removeQuestion({{ $questionId }})" variant="danger" size="sm">{{ __('Remove') }}</flux:button>
-                            </div>
-                            <flux:textarea
-                                wire:model="salesNotes.{{ $questionId }}"
-                                :label="__('Sales notes')"
-                                :description="__('Staff-only talking points shown while this question is being answered.')"
-                                rows="3"
-                                maxlength="5000"
-                                class="lg:col-span-2"
-                            />
+            <flux:tab.panel name="quiz" class="space-y-6">
+                <flux:card class="space-y-5">
+                    <flux:heading size="lg">{{ __('Show details') }}</flux:heading>
+                    <div class="grid gap-4 lg:grid-cols-2">
+                        <flux:input wire:model="name" :label="__('Show name')" required />
+                        <flux:select wire:model="customerId" :label="__('Customer')">
+                            <flux:select.option value="">{{ __('No customer') }}</flux:select.option>
+                            @foreach ($this->customers as $customer)
+                                <flux:select.option :value="$customer->id" wire:key="customer-{{ $customer->id }}">{{ $customer->name }}</flux:select.option>
+                            @endforeach
+                        </flux:select>
+                    </div>
+                    <flux:radio.group wire:model.live="activationMode" variant="cards" :label="__('Activation')" class="grid sm:grid-cols-2">
+                        <flux:radio value="manual" :label="__('Manual')" :description="__('Staff controls activation.')" />
+                        <flux:radio value="scheduled" :label="__('Scheduled')" :description="__('Activates during its schedule.')" />
+                    </flux:radio.group>
+                    @if ($activationMode === 'manual')
+                        <flux:switch wire:model="isActive" :label="__('Show is active')" />
+                    @else
+                        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                            <flux:date-picker wire:model="startDate" type="input" :label="__('Start date')" />
+                            <flux:time-picker wire:model="startTime" type="input" :label="__('Start time')" />
+                            <flux:date-picker wire:model="endDate" type="input" :label="__('End date')" />
+                            <flux:time-picker wire:model="endTime" type="input" :label="__('End time')" />
                         </div>
-                    @endforeach
-                    <div class="grid items-end gap-2 lg:grid-cols-[1fr_1fr_auto]">
-                        <flux:input wire:model="newQuestion" :label="__('New question')" />
-                        <flux:input wire:model="newCorrectAnswer" :label="__('Correct answer')" />
-                        <flux:button type="button" wire:click="addQuestion">{{ __('Add question') }}</flux:button>
-                    </div>
-                    <flux:textarea
-                        wire:model="newSalesNotes"
-                        :label="__('Sales notes')"
-                        :description="__('Optional staff-only talking points for this question.')"
-                        rows="3"
-                        maxlength="5000"
-                    />
-                    <flux:error name="newQuestion" />
-                    <flux:error name="newCorrectAnswer" />
-                    <flux:error name="newSalesNotes" />
-                </div>
-            @endif
+                    @endif
+                </flux:card>
 
-            <flux:separator />
+                <flux:card class="space-y-5">
+                    <flux:heading size="lg">{{ __('Quiz scoring') }}</flux:heading>
+                    <flux:radio.group wire:model.live="scoringMode" variant="cards" class="grid lg:grid-cols-3">
+                        <flux:radio value="per_answer" :label="__('Per-answer scoring')" :description="__('Record each answer individually.')" />
+                        <flux:radio value="summary" :label="__('Summary scoring')" :description="__('Enter one final score.')" />
+                        <flux:radio value="question_answer" :label="__('Question/answer quiz')" :description="__('Contestants answer released questions on their phone.')" />
+                    </flux:radio.group>
+                    @if ($scoringMode === 'summary')
+                        <flux:input wire:model="maximumScore" type="number" min="1" max="65535" :label="__('Maximum score')" />
+                        @if ($questionPrompts)
+                            <flux:callout>{{ __('Questions are retained if you switch back to per-answer scoring.') }}</flux:callout>
+                        @endif
+                    @else
+                        <div class="space-y-3">
+                            <div wire:sort="sortQuestion" class="space-y-2">
+                                @foreach ($questionPrompts as $questionId => $prompt)
+                                    <div
+                                        wire:key="question-{{ $questionId }}"
+                                        wire:sort:item="{{ $questionId }}"
+                                        class="grid items-end gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-xs dark:border-white/10 dark:bg-white/5 lg:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                                    >
+                                        <div wire:sort:handle class="flex h-10 cursor-grab items-center justify-center px-1 text-zinc-400 active:cursor-grabbing" aria-label="{{ __('Drag to reorder question') }}">
+                                            <flux:icon name="bars-3" class="size-5" />
+                                        </div>
+                                        <flux:input wire:model="questionPrompts.{{ $questionId }}" :label="__('Question')" />
+                                        <flux:input wire:model="correctAnswers.{{ $questionId }}" :label="__('Correct answer')" />
+                                        <div wire:sort:ignore class="flex flex-wrap gap-2">
+                                            <flux:button type="button" icon="document-text" wire:click="editNotes({{ $questionId }})">
+                                                {{ __('Notes') }}
+                                            </flux:button>
+                                            <flux:button type="button" icon="check" square :tooltip="__('Save question')" wire:click="updateQuestion({{ $questionId }})" />
+                                            <flux:button type="button" icon="trash" square variant="danger" :tooltip="__('Remove question')" wire:click="removeQuestion({{ $questionId }})" wire:confirm="{{ __('Remove this question?') }}" />
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
 
-            <div class="space-y-4">
-                <div>
-                    <flux:heading>{{ __('Registration information') }}</flux:heading>
-                    <flux:text>{{ __('Add quiz-specific details or artwork for attendees to see before signing up.') }}</flux:text>
-                </div>
+                            <div class="grid items-end gap-2 rounded-xl border border-dashed border-zinc-300 p-3 dark:border-white/15 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                                <flux:input wire:model="newQuestion" :label="__('New question')" />
+                                <flux:input wire:model="newCorrectAnswer" :label="__('Correct answer')" />
+                                <div class="flex flex-wrap gap-2">
+                                    <flux:button type="button" icon="document-text" wire:click="editNotes">{{ __('Notes') }}</flux:button>
+                                    <flux:button type="button" icon="plus" variant="primary" wire:click="addQuestion">{{ __('Add') }}</flux:button>
+                                </div>
+                            </div>
+                            <flux:error name="newQuestion" />
+                            <flux:error name="newCorrectAnswer" />
+                            <flux:error name="newSalesNotes" />
+                        </div>
+                    @endif
+                </flux:card>
+            </flux:tab.panel>
 
-                <flux:textarea
-                    wire:model="registrationMessage"
-                    :label="__('Registration message')"
-                    :description="__('Optional information shown above the registration form.')"
-                    rows="4"
-                    maxlength="2000"
-                />
-
-                @if ($show->quiz->registration_image_path)
-                    <img
-                        src="{{ Storage::disk('public')->url($show->quiz->registration_image_path) }}"
-                        alt="{{ __('Current registration artwork') }}"
-                        class="max-h-64 rounded-xl border border-zinc-200 object-contain dark:border-zinc-700"
-                    />
-                @endif
-
-                <flux:file-upload wire:model="registrationImage" :label="__('Registration image')">
-                    <flux:file-upload.dropzone
-                        :heading="__('Drop an image here or click to browse')"
-                        :text="__('JPG, PNG, or WebP up to 5 MB')"
-                        with-progress
-                    />
-                </flux:file-upload>
-            </div>
-
-            <flux:separator />
-
-            <flux:textarea
-                wire:model="leaderboardMessage"
-                :label="__('Leaderboard message')"
-                :description="__('Optional quiz-specific information shown in the bottom bar.')"
-                rows="2"
-                maxlength="160"
-            />
-
-            <flux:input
-                wire:model="advertisementEmbedUrl"
-                type="url"
-                :label="__('Advertisement embed URL')"
-                :description="__('Optional HTTPS embed URL shown when staff selects Play Ad. Use an autoplay-enabled URL from the video provider.')"
-                placeholder="https://www.youtube.com/embed/...?autoplay=1"
-            />
-
-            <flux:separator />
-
-            <div class="space-y-4">
-                <div>
-                    <flux:heading>{{ __('Perfect score celebration') }}</flux:heading>
-                    <flux:text>{{ __('Optionally upload the sticker or prize artwork shown when someone earns a perfect score.') }}</flux:text>
-                </div>
-
-                @if ($perfectScoreImage?->isPreviewable())
-                    <img
-                        src="{{ $perfectScoreImage->temporaryUrl() }}"
-                        alt="{{ __('Selected perfect score artwork preview') }}"
-                        class="max-h-48 rounded-xl border border-zinc-200 object-contain dark:border-zinc-700"
-                    />
-                    <flux:text>{{ __('New image ready to save.') }}</flux:text>
-                @elseif ($perfectScoreImage)
-                    <flux:callout variant="warning">{{ __('The selected file cannot be previewed.') }}</flux:callout>
-                @elseif ($show->quiz->perfect_score_image_path)
-                    <img
-                        src="{{ Storage::disk('public')->url($show->quiz->perfect_score_image_path) }}"
-                        alt="{{ __('Current perfect score artwork') }}"
-                        class="max-h-48 rounded-xl border border-zinc-200 object-contain dark:border-zinc-700"
-                    />
-                @endif
-
-                @if ($perfectScoreImage || $show->quiz->perfect_score_image_path)
+            <flux:tab.panel name="settings" class="space-y-6">
+                <flux:card class="space-y-5">
                     <div>
-                        <flux:button type="button" variant="danger" size="sm" wire:click="clearPerfectScoreImage">
-                            {{ __('Clear image') }}
-                        </flux:button>
+                        <flux:heading size="lg">{{ __('Registration information') }}</flux:heading>
+                        <flux:text>{{ __('Details and artwork attendees see before signing up.') }}</flux:text>
                     </div>
-                @else
-                    <flux:file-upload wire:model="perfectScoreImage" :label="__('Perfect score image')">
-                        <flux:file-upload.dropzone
-                            :heading="__('Drop a perfect score image here or click to browse')"
-                            :text="__('JPG, PNG, or WebP up to 5 MB')"
-                            with-progress
-                        />
-                    </flux:file-upload>
-                @endif
-            </div>
-        </flux:card>
+                    <div class="grid gap-6 lg:grid-cols-2">
+                        <div class="space-y-3">
+                            <flux:heading size="sm">{{ __('Registration image') }}</flux:heading>
+                            @if ($registrationImage?->isPreviewable())
+                                <img src="{{ $registrationImage->temporaryUrl() }}" alt="{{ __('Selected registration artwork preview') }}" class="h-40 w-full rounded-xl border border-zinc-200 object-contain dark:border-zinc-700" />
+                            @elseif ($show->quiz->registration_image_path)
+                                <img src="{{ Storage::disk('public')->url($show->quiz->registration_image_path) }}" alt="{{ __('Current registration artwork') }}" class="h-40 w-full rounded-xl border border-zinc-200 object-contain dark:border-zinc-700" />
+                            @endif
+                            <flux:file-upload wire:model="registrationImage">
+                                <flux:file-upload.dropzone :heading="__('Drop an image or browse')" :text="__('JPG, PNG, or WebP up to 5 MB')" with-progress />
+                            </flux:file-upload>
+                        </div>
+                        <flux:textarea wire:model="registrationMessage" :label="__('Registration message')" :description="__('Optional information shown above the registration form.')" rows="8" maxlength="2000" />
+                    </div>
 
-        <div class="flex justify-end"><flux:button variant="primary" type="submit">{{ __('Save configuration') }}</flux:button></div>
+                    <flux:separator />
+
+                    <div>
+                        <flux:heading size="lg">{{ __('Leaderboard settings') }}</flux:heading>
+                        <flux:text>{{ __('Configure the leaderboard message, advertisement, and perfect-score artwork.') }}</flux:text>
+                    </div>
+                    <div class="grid gap-6 lg:grid-cols-2">
+                        <div class="space-y-4">
+                            <flux:textarea wire:model="leaderboardMessage" :label="__('Leaderboard message')" :description="__('Optional information shown in the bottom bar.')" rows="3" maxlength="160" />
+                            <flux:input wire:model="advertisementEmbedUrl" type="url" :label="__('Advertisement embed URL')" :description="__('Optional HTTPS autoplay embed URL used by Play Ad.')" placeholder="https://www.youtube.com/embed/...?autoplay=1" />
+                        </div>
+                        <div class="space-y-3">
+                            <div>
+                                <flux:heading size="sm">{{ __('Perfect score icon') }}</flux:heading>
+                                <flux:text>{{ __('Artwork shown when someone earns a perfect score.') }}</flux:text>
+                            </div>
+                            @if ($perfectScoreImage?->isPreviewable())
+                                <img src="{{ $perfectScoreImage->temporaryUrl() }}" alt="{{ __('Selected perfect score artwork preview') }}" class="h-40 w-full rounded-xl border border-zinc-200 object-contain dark:border-zinc-700" />
+                                <flux:text>{{ __('New image ready to save.') }}</flux:text>
+                            @elseif ($perfectScoreImage)
+                                <flux:callout variant="warning">{{ __('The selected file cannot be previewed.') }}</flux:callout>
+                            @elseif ($show->quiz->perfect_score_image_path)
+                                <img src="{{ Storage::disk('public')->url($show->quiz->perfect_score_image_path) }}" alt="{{ __('Current perfect score artwork') }}" class="h-40 w-full rounded-xl border border-zinc-200 object-contain dark:border-zinc-700" />
+                            @endif
+                            @if ($perfectScoreImage || $show->quiz->perfect_score_image_path)
+                                <flux:button type="button" variant="danger" icon="x-mark" wire:click="clearPerfectScoreImage">{{ __('Clear image') }}</flux:button>
+                            @else
+                                <flux:file-upload wire:model="perfectScoreImage">
+                                    <flux:file-upload.dropzone :heading="__('Drop a perfect score icon or browse')" :text="__('JPG, PNG, or WebP up to 5 MB')" with-progress />
+                                </flux:file-upload>
+                            @endif
+                        </div>
+                    </div>
+                </flux:card>
+            </flux:tab.panel>
+        </flux:tab.group>
+
+        <div class="flex justify-end"><flux:button variant="primary" icon="check" type="submit">{{ __('Save configuration') }}</flux:button></div>
     </form>
+
+    <flux:modal name="question-notes" class="md:w-[46rem]">
+        <form wire:submit="saveNotes" class="space-y-6">
+            <div>
+                <flux:heading size="lg">{{ __('Sales notes') }}</flux:heading>
+                <flux:text>{{ __('Add staff-only talking points for this question.') }}</flux:text>
+            </div>
+            <flux:editor wire:model="notesEditorContent" :label="__('Notes')" class="min-h-64" />
+            <flux:error name="notesEditorContent" />
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button type="button" variant="ghost">{{ __('Cancel') }}</flux:button></flux:modal.close>
+                <flux:button type="submit" variant="primary" icon="check">{{ __('Save notes') }}</flux:button>
+            </div>
+        </form>
+    </flux:modal>
 </section>

@@ -173,7 +173,7 @@ test('staff can complete a per-answer quiz with timing', function () {
         );
 });
 
-test('sales notes are escaped on the staff dashboard', function () {
+test('unsafe sales note markup is removed from the staff dashboard', function () {
     $user = User::factory()->create();
     $show = Show::factory()->active()->create();
     $quiz = Quiz::factory()->for($show)->create();
@@ -186,7 +186,6 @@ test('sales notes are escaped on the staff dashboard', function () {
     Livewire::actingAs($user)
         ->test('pages::dashboard')
         ->call('start', $participant->id)
-        ->assertSee('<script>alert("sales")</script>')
         ->assertDontSee('<script>alert("sales")</script>', false);
 });
 
