@@ -129,7 +129,11 @@ test('staff can complete a per-answer quiz with timing', function () {
     $user = User::factory()->create();
     $show = Show::factory()->active()->create();
     $quiz = Quiz::factory()->for($show)->create();
-    $first = Question::factory()->for($quiz)->create(['prompt' => 'First question', 'position' => 1]);
+    $first = Question::factory()->for($quiz)->create([
+        'prompt' => 'First question',
+        'sales_notes' => 'Mention the extended product warranty.',
+        'position' => 1,
+    ]);
     $second = Question::factory()->for($quiz)->create(['prompt' => 'Second question', 'position' => 2]);
     $participant = Participant::factory()->for($show)->create();
 
@@ -139,6 +143,7 @@ test('staff can complete a per-answer quiz with timing', function () {
         ->assertSee('Question 1 of 2')
         ->assertSee('Question 2 of 2')
         ->assertSee('Enter each time in seconds.')
+        ->assertSee('Mention the extended product warranty.')
         ->set("answerCorrect.{$first->id}", true)
         ->set("answerSeconds.{$first->id}", '3.125')
         ->set("answerCorrect.{$second->id}", false)
@@ -166,6 +171,23 @@ test('staff can complete a per-answer quiz with timing', function () {
                 ->is_correct->toBeFalse()
                 ->elapsed_ms->toBe(4500),
         );
+});
+
+test('sales notes are escaped on the staff dashboard', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->create();
+    Question::factory()->for($quiz)->create([
+        'sales_notes' => '<script>alert("sales")</script>',
+        'position' => 1,
+    ]);
+    $participant = Participant::factory()->for($show)->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::dashboard')
+        ->call('start', $participant->id)
+        ->assertSee('<script>alert("sales")</script>')
+        ->assertDontSee('<script>alert("sales")</script>', false);
 });
 
 test('every per-answer question requires a time', function () {

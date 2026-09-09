@@ -126,21 +126,42 @@ test('staff can add update and remove quiz questions', function () {
     $component = Livewire::actingAs($user)
         ->test('pages::shows.edit', ['show' => $show])
         ->set('newQuestion', 'What material is this part made from?')
+        ->set('newSalesNotes', "Discuss corrosion resistance.\nMention the lightweight design.")
         ->call('addQuestion')
         ->assertHasNoErrors();
 
     $question = $quiz->questions()->sole();
 
+    expect($question->sales_notes)->toBe("Discuss corrosion resistance.\nMention the lightweight design.");
+
     $component
         ->set("questionPrompts.{$question->id}", 'What alloy is this part made from?')
+        ->set("salesNotes.{$question->id}", 'Explain why this alloy reduces shipping costs.')
         ->call('updateQuestion', $question->id)
         ->assertHasNoErrors();
 
-    expect($question->fresh()->prompt)->toBe('What alloy is this part made from?');
+    expect($question->fresh())
+        ->prompt->toBe('What alloy is this part made from?')
+        ->sales_notes->toBe('Explain why this alloy reduces shipping costs.');
 
     $component->call('removeQuestion', $question->id);
 
     expect($question->fresh())->toBeNull();
+});
+
+test('sales notes are limited to the available staff display space', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    Quiz::factory()->for($show)->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('newQuestion', 'What material is this?')
+        ->set('newSalesNotes', str_repeat('a', 5001))
+        ->call('addQuestion')
+        ->assertHasErrors(['newSalesNotes']);
+
+    expect($show->quiz->questions()->exists())->toBeFalse();
 });
 
 test('staff can reorder quiz questions', function () {

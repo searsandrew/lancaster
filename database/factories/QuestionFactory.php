@@ -22,6 +22,7 @@ class QuestionFactory extends Factory
             'quiz_id' => Quiz::factory(),
             'prompt' => fake()->sentence(),
             'correct_answer' => fake()->word(),
+            'sales_notes' => null,
             'position' => fake()->unique()->numberBetween(1, 1000),
         ];
     }

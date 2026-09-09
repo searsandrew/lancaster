@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['quiz_id', 'prompt', 'correct_answer', 'position'])]
+#[Fillable(['quiz_id', 'prompt', 'correct_answer', 'sales_notes', 'position'])]
 class Question extends Model
 {
     /** @use HasFactory<QuestionFactory> */

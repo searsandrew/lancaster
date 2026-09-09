@@ -568,6 +568,12 @@ new #[Title('Dashboard')] class extends Component
                                     <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :current of :total', ['current' => $currentQuestion->position, 'total' => $this->entry->quiz->questions->count()]) }}</flux:text>
                                     <flux:heading>{{ $currentQuestion->prompt }}</flux:heading>
                                 </div>
+                                @if ($currentQuestion->sales_notes)
+                                    <flux:callout icon="chat-bubble-left-right">
+                                        <flux:callout.heading>{{ __('Sales notes') }}</flux:callout.heading>
+                                        <flux:callout.text><div class="whitespace-pre-line">{{ $currentQuestion->sales_notes }}</div></flux:callout.text>
+                                    </flux:callout>
+                                @endif
                                 <div class="rounded-lg bg-zinc-100 p-4 dark:bg-zinc-900">
                                     <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Contestant answer') }}</flux:text>
                                     <div class="mt-1 text-lg font-medium">{{ $currentAnswer->submitted_answer }}</div>
@@ -584,7 +590,15 @@ new #[Title('Dashboard')] class extends Component
                                 </div>
                             </flux:card>
                         @elseif ($currentQuestion)
-                            <flux:callout icon="clock">{{ __('Question :number sent. Waiting for the contestant’s answer…', ['number' => $currentQuestion->position]) }}</flux:callout>
+                            <div class="space-y-4">
+                                <flux:callout icon="clock">{{ __('Question :number sent. Waiting for the contestant’s answer…', ['number' => $currentQuestion->position]) }}</flux:callout>
+                                @if ($currentQuestion->sales_notes)
+                                    <flux:callout icon="chat-bubble-left-right">
+                                        <flux:callout.heading>{{ __('Sales notes') }}</flux:callout.heading>
+                                        <flux:callout.text><div class="whitespace-pre-line">{{ $currentQuestion->sales_notes }}</div></flux:callout.text>
+                                    </flux:callout>
+                                @endif
+                            </div>
                         @elseif ($this->entry->answers->whereNotNull('reviewed_at')->count() < $this->entry->quiz->questions->count())
                             <flux:button type="button" variant="primary" icon="paper-airplane" wire:click="sendQuestion">
                                 {{ $this->entry->answers->isEmpty() ? __('Send first question') : __('Send next question') }}
@@ -635,6 +649,12 @@ new #[Title('Dashboard')] class extends Component
                                 <div>
                                     <flux:text class="text-xs font-semibold uppercase tracking-wider">{{ __('Question :current of :total', ['current' => $loop->iteration, 'total' => $loop->count]) }}</flux:text>
                                     <flux:heading>{{ $question->prompt }}</flux:heading>
+                                    @if ($question->sales_notes)
+                                        <div class="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-100">
+                                            <div class="font-semibold">{{ __('Sales notes') }}</div>
+                                            <div class="mt-1 whitespace-pre-line">{{ $question->sales_notes }}</div>
+                                        </div>
+                                    @endif
                                 </div>
                                 <flux:toggle icon="check-circle" color="emerald" wire:model="answerCorrect.{{ $question->id }}" />
                                 <flux:input

@@ -38,10 +38,13 @@ new #[Title('Configure show')] class extends Component {
     public string $advertisementEmbedUrl = '';
     public string $newQuestion = '';
     public string $newCorrectAnswer = '';
+    public string $newSalesNotes = '';
     /** @var array<int, string> */
     public array $questionPrompts = [];
     /** @var array<int, string> */
     public array $correctAnswers = [];
+    /** @var array<int, string> */
+    public array $salesNotes = [];
 
     /** @return Collection<int, Customer> */
     #[Computed]
@@ -137,15 +140,18 @@ new #[Title('Configure show')] class extends Component {
         $validated = $this->validate([
             'newQuestion' => ['required', 'string', 'max:1000'],
             'newCorrectAnswer' => [Rule::requiredIf($this->scoringMode === 'question_answer'), 'nullable', 'string', 'max:1000'],
+            'newSalesNotes' => ['nullable', 'string', 'max:5000'],
         ]);
         $position = ((int) $this->show->quiz->questions()->max('position')) + 1;
         $this->show->quiz->questions()->create([
             'prompt' => trim($validated['newQuestion']),
             'correct_answer' => trim($validated['newCorrectAnswer'] ?? '') ?: null,
+            'sales_notes' => trim($validated['newSalesNotes']) ?: null,
             'position' => $position,
         ]);
         $this->newQuestion = '';
         $this->newCorrectAnswer = '';
+        $this->newSalesNotes = '';
         $this->refreshQuestions();
     }
 
@@ -155,10 +161,12 @@ new #[Title('Configure show')] class extends Component {
         $validated = $this->validate([
             "questionPrompts.{$questionId}" => ['required', 'string', 'max:1000'],
             "correctAnswers.{$questionId}" => [Rule::requiredIf($this->scoringMode === 'question_answer'), 'nullable', 'string', 'max:1000'],
+            "salesNotes.{$questionId}" => ['nullable', 'string', 'max:5000'],
         ]);
         $question->update([
             'prompt' => trim($validated['questionPrompts'][$questionId]),
             'correct_answer' => trim($validated['correctAnswers'][$questionId] ?? '') ?: null,
+            'sales_notes' => trim($validated['salesNotes'][$questionId] ?? '') ?: null,
         ]);
     }
 
@@ -246,6 +254,7 @@ new #[Title('Configure show')] class extends Component {
     {
         $this->questionPrompts = $this->show->quiz->questions()->pluck('prompt', 'id')->all();
         $this->correctAnswers = $this->show->quiz->questions()->pluck('correct_answer', 'id')->map(fn (?string $answer): string => $answer ?? '')->all();
+        $this->salesNotes = $this->show->quiz->questions()->pluck('sales_notes', 'id')->map(fn (?string $notes): string => $notes ?? '')->all();
     }
 
     private function normalizePositions(): void
@@ -316,6 +325,14 @@ new #[Title('Configure show')] class extends Component {
                             <flux:button type="button" wire:click="updateQuestion({{ $questionId }})" size="sm">{{ __('Save') }}</flux:button>
                             <flux:button type="button" wire:click="removeQuestion({{ $questionId }})" variant="danger" size="sm">{{ __('Remove') }}</flux:button>
                             </div>
+                            <flux:textarea
+                                wire:model="salesNotes.{{ $questionId }}"
+                                :label="__('Sales notes')"
+                                :description="__('Staff-only talking points shown while this question is being answered.')"
+                                rows="3"
+                                maxlength="5000"
+                                class="lg:col-span-2"
+                            />
                         </div>
                     @endforeach
                     <div class="grid items-end gap-2 lg:grid-cols-[1fr_1fr_auto]">
@@ -323,8 +340,16 @@ new #[Title('Configure show')] class extends Component {
                         <flux:input wire:model="newCorrectAnswer" :label="__('Correct answer')" />
                         <flux:button type="button" wire:click="addQuestion">{{ __('Add question') }}</flux:button>
                     </div>
+                    <flux:textarea
+                        wire:model="newSalesNotes"
+                        :label="__('Sales notes')"
+                        :description="__('Optional staff-only talking points for this question.')"
+                        rows="3"
+                        maxlength="5000"
+                    />
                     <flux:error name="newQuestion" />
                     <flux:error name="newCorrectAnswer" />
+                    <flux:error name="newSalesNotes" />
                 </div>
             @endif
 

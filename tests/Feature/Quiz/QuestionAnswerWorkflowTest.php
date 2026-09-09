@@ -60,6 +60,7 @@ test('a released question accepts a timed phone answer and automatically checks 
     $question = Question::factory()->for($quiz)->create([
         'prompt' => 'What metal is shown?',
         'correct_answer' => 'Aluminum',
+        'sales_notes' => 'Explain that aluminum is lightweight and corrosion resistant.',
         'position' => 1,
     ]);
     $participant = Participant::factory()->for($show)->create(['recovery_code' => '123456']);
@@ -68,7 +69,9 @@ test('a released question accepts a timed phone answer and automatically checks 
         ->test('pages::dashboard')
         ->call('start', $participant->id)
         ->call('sendQuestion')
-        ->assertHasNoErrors();
+        ->assertHasNoErrors()
+        ->assertSee('Sales notes')
+        ->assertSee('Explain that aluminum is lightweight and corrosion resistant.');
 
     $this->travel(2500)->milliseconds();
     session()->put("quiz_participant_{$show->id}", $participant->id);
@@ -76,6 +79,7 @@ test('a released question accepts a timed phone answer and automatically checks 
     Livewire::test('pages::register')
         ->assertSee('What metal is shown?')
         ->assertDontSee('Aluminum')
+        ->assertDontSee('Explain that aluminum is lightweight and corrosion resistant.')
         ->set('submittedAnswer', ' aluminum ')
         ->call('submitAnswer')
         ->assertHasNoErrors()
