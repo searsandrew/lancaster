@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\QuizScoringMode;
+use App\Jobs\SubscribeParticipantToEmailList;
 use App\Models\Participant;
 use App\Models\Question;
 use App\Models\QuizAnswer;
@@ -76,6 +77,10 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
             'marketing_opt_in' => $validated['marketingOptIn'],
         ]);
         $participant->refreshRecoveryCode();
+
+        if ($participant->marketing_opt_in && $show->quiz?->customer?->hasEmailMarketingConnection()) {
+            SubscribeParticipantToEmailList::dispatch($participant);
+        }
 
         session()->put($this->sessionKey($show), $participant->id);
         $this->registered = true;
@@ -164,7 +169,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
 
     private function currentShow(): ?Show
     {
-        $activeShows = Show::query()->activeAt()->with('quiz')->limit(2)->get();
+        $activeShows = Show::query()->activeAt()->with('quiz.customer')->limit(2)->get();
 
         return $activeShows->count() === 1 ? $activeShows->first() : null;
     }

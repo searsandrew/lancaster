@@ -2,6 +2,7 @@
 
 use App\Enums\QuizScoringMode;
 use App\Enums\ShowActivationMode;
+use App\Models\Customer;
 use App\Models\Question;
 use App\Models\Quiz;
 use App\Models\Show;
@@ -65,6 +66,21 @@ test('staff can update show and summary scoring configuration', function () {
         ->and($quiz->leaderboard_message)->toBe('Sticker pickup at booth 412')
         ->and($quiz->advertisement_embed_url)->toBe('https://www.youtube.com/embed/example?autoplay=1')
         ->and($question->fresh())->not->toBeNull();
+});
+
+test('staff can assign a customer to a quiz', function () {
+    $user = User::factory()->create();
+    $customer = Customer::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->summary()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('customerId', $customer->id)
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($quiz->fresh()->customer->is($customer))->toBeTrue();
 });
 
 test('advertisement embed URLs must use HTTPS', function () {

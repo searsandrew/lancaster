@@ -32,4 +32,8 @@ Route::livewire('shows/{show}/edit', 'pages::shows.edit')
     ->middleware(['auth', 'verified'])
     ->name('shows.edit');
 
+Route::livewire('customers', 'pages::customers.index')
+    ->middleware(['auth', 'verified'])
+    ->name('customers.index');
+
 require __DIR__.'/settings.php';

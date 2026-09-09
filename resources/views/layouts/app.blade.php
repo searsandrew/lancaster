@@ -11,6 +11,9 @@
                 <flux:navbar.item icon="calendar-days" :href="route('shows.index')" :current="request()->routeIs('shows.*')" wire:navigate>
                     {{ __('Shows') }}
                 </flux:navbar.item>
+                <flux:navbar.item icon="building-office" :href="route('customers.index')" :current="request()->routeIs('customers.*')" wire:navigate>
+                    {{ __('Customers') }}
+                </flux:navbar.item>
             </flux:navbar>
 
             <flux:spacer />
@@ -50,6 +53,9 @@
                     </flux:sidebar.item>
                     <flux:sidebar.item icon="users" :href="route('participants.index')" :current="request()->routeIs('participants.*')" wire:navigate>
                         {{ __('Participants') }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="building-office" :href="route('customers.index')" :current="request()->routeIs('customers.*')" wire:navigate>
+                        {{ __('Customers') }}
                     </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>

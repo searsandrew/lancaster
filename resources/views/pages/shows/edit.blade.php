@@ -2,14 +2,17 @@
 
 use App\Enums\QuizScoringMode;
 use App\Enums\ShowActivationMode;
+use App\Models\Customer;
 use App\Models\Question;
 use App\Models\Show;
 use Flux\Flux;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
@@ -26,6 +29,7 @@ new #[Title('Configure show')] class extends Component {
     public ?string $endDate = null;
     public ?string $endTime = null;
     public string $scoringMode;
+    public ?int $customerId = null;
     public ?int $maximumScore = null;
     public string $registrationMessage = '';
     public ?TemporaryUploadedFile $registrationImage = null;
@@ -39,9 +43,16 @@ new #[Title('Configure show')] class extends Component {
     /** @var array<int, string> */
     public array $correctAnswers = [];
 
+    /** @return Collection<int, Customer> */
+    #[Computed]
+    public function customers(): Collection
+    {
+        return Customer::query()->orderBy('name')->get();
+    }
+
     public function mount(Show $show): void
     {
-        $this->show = $show->loadMissing('quiz.questions');
+        $this->show = $show->loadMissing('quiz.questions', 'quiz.customer');
         $this->name = $show->name;
         $this->activationMode = $show->activation_mode->value;
         $this->isActive = $show->is_active;
@@ -50,6 +61,7 @@ new #[Title('Configure show')] class extends Component {
         $this->endDate = $show->ends_at?->format('Y-m-d');
         $this->endTime = $show->ends_at?->format('H:i');
         $this->scoringMode = $show->quiz->scoring_mode->value;
+        $this->customerId = $show->quiz->customer_id;
         $this->maximumScore = $show->quiz->maximum_score;
         $this->registrationMessage = $show->quiz->registration_message ?? '';
         $this->leaderboardMessage = $show->quiz->leaderboard_message ?? '';
@@ -94,6 +106,7 @@ new #[Title('Configure show')] class extends Component {
                 'ends_at' => $endsAt,
             ]);
             $this->show->quiz->update([
+                'customer_id' => $validated['customerId'],
                 'scoring_mode' => $validated['scoringMode'],
                 'maximum_score' => $validated['scoringMode'] === 'summary' ? $validated['maximumScore'] : null,
                 'registration_message' => trim($validated['registrationMessage']) ?: null,
@@ -191,6 +204,7 @@ new #[Title('Configure show')] class extends Component {
             'endDate' => [Rule::requiredIf($this->activationMode === 'scheduled'), 'nullable', 'date_format:Y-m-d'],
             'endTime' => [Rule::requiredIf($this->activationMode === 'scheduled'), 'nullable', 'date_format:H:i'],
             'scoringMode' => ['required', Rule::enum(QuizScoringMode::class)],
+            'customerId' => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'maximumScore' => [Rule::requiredIf($this->scoringMode === 'summary'), 'nullable', 'integer', 'min:1', 'max:65535'],
             'registrationMessage' => ['nullable', 'string', 'max:2000'],
             'registrationImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
@@ -251,6 +265,12 @@ new #[Title('Configure show')] class extends Component {
 
         <flux:card class="space-y-6">
             <flux:heading size="lg">{{ __('Quiz scoring') }}</flux:heading>
+            <flux:select wire:model="customerId" :label="__('Customer')" :description="__('Email opt-ins use this customer’s configured provider connection.')">
+                <flux:select.option value="">{{ __('No customer') }}</flux:select.option>
+                @foreach ($this->customers as $customer)
+                    <flux:select.option :value="$customer->id" wire:key="customer-{{ $customer->id }}">{{ $customer->name }}</flux:select.option>
+                @endforeach
+            </flux:select>
             <flux:radio.group wire:model.live="scoringMode" variant="cards" class="grid lg:grid-cols-3">
                 <flux:radio value="per_answer" :label="__('Per-answer scoring')" :description="__('Record each answer individually.')" />
                 <flux:radio value="summary" :label="__('Summary scoring')" :description="__('Enter one final score.')" />

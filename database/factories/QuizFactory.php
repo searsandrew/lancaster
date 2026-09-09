@@ -22,6 +22,7 @@ class QuizFactory extends Factory
     {
         return [
             'show_id' => Show::factory(),
+            'customer_id' => null,
             'scoring_mode' => QuizScoringMode::PerAnswer,
             'maximum_score' => null,
             'leaderboard_display_mode' => LeaderboardDisplayMode::Leaderboard,

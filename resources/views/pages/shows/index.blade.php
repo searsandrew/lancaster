@@ -2,6 +2,7 @@
 
 use App\Enums\QuizScoringMode;
 use App\Enums\ShowActivationMode;
+use App\Models\Customer;
 use App\Models\Show;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
@@ -22,6 +23,7 @@ new #[Title('Shows')] class extends Component {
     public ?string $endDate = null;
     public ?string $endTime = null;
     public string $scoringMode = 'per_answer';
+    public ?int $customerId = null;
     public ?int $maximumScore = null;
 
     /** @return Collection<int, Show> */
@@ -29,6 +31,13 @@ new #[Title('Shows')] class extends Component {
     public function shows(): Collection
     {
         return Show::query()->with('quiz')->latest('starts_at')->latest('id')->get();
+    }
+
+    /** @return Collection<int, Customer> */
+    #[Computed]
+    public function customers(): Collection
+    {
+        return Customer::query()->orderBy('name')->get();
     }
 
     public function createShow(): void
@@ -42,6 +51,7 @@ new #[Title('Shows')] class extends Component {
             'endDate' => [Rule::requiredIf($this->activationMode === 'scheduled'), 'nullable', 'date_format:Y-m-d'],
             'endTime' => [Rule::requiredIf($this->activationMode === 'scheduled'), 'nullable', 'date_format:H:i'],
             'scoringMode' => ['required', Rule::enum(QuizScoringMode::class)],
+            'customerId' => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'maximumScore' => [Rule::requiredIf($this->scoringMode === 'summary'), 'nullable', 'integer', 'min:1', 'max:65535'],
         ]);
 
@@ -65,6 +75,7 @@ new #[Title('Shows')] class extends Component {
             ]);
 
             $show->quiz()->create([
+                'customer_id' => $validated['customerId'],
                 'scoring_mode' => $validated['scoringMode'],
                 'maximum_score' => $validated['scoringMode'] === 'summary' ? $validated['maximumScore'] : null,
             ]);
@@ -167,6 +178,13 @@ new #[Title('Shows')] class extends Component {
             @endif
 
             <flux:separator />
+
+            <flux:select wire:model="customerId" :label="__('Customer')" :description="__('Optional. Marketing opt-ins use this customer’s email provider connection.')">
+                <flux:select.option value="">{{ __('No customer') }}</flux:select.option>
+                @foreach ($this->customers as $customer)
+                    <flux:select.option :value="$customer->id" wire:key="new-show-customer-{{ $customer->id }}">{{ $customer->name }}</flux:select.option>
+                @endforeach
+            </flux:select>
 
             <flux:radio.group wire:model.live="scoringMode" variant="cards" :label="__('Scoring method')" class="grid lg:grid-cols-3">
                 <flux:radio value="per_answer" :label="__('Per-answer scoring')" :description="__('Staff records whether each answer is correct.')" />

@@ -1,8 +1,11 @@
 <?php
 
+use App\Jobs\SubscribeParticipantToEmailList;
+use App\Models\Customer;
 use App\Models\Participant;
 use App\Models\Quiz;
 use App\Models\Show;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -43,6 +46,41 @@ test('a participant can register for the active show', function () {
         'email' => 'ada@example.com',
         'marketing_opt_in' => false,
     ]);
+});
+
+test('an opted-in participant is queued for the assigned customer email list', function () {
+    $customer = Customer::factory()->klaviyo()->create();
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->for($customer)->create();
+    Queue::fake([SubscribeParticipantToEmailList::class]);
+
+    Livewire::test('pages::register')
+        ->set('firstName', 'Ada')
+        ->set('lastName', 'Lovelace')
+        ->set('email', 'ada@example.com')
+        ->set('marketingOptIn', true)
+        ->call('register')
+        ->assertHasNoErrors();
+
+    Queue::assertPushed(SubscribeParticipantToEmailList::class, fn (SubscribeParticipantToEmailList $job): bool => $job->participant->email === 'ada@example.com'
+    );
+});
+
+test('a participant who declines marketing is not queued for an email list', function () {
+    $customer = Customer::factory()->mailchimp()->create();
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->for($customer)->create();
+    Queue::fake([SubscribeParticipantToEmailList::class]);
+
+    Livewire::test('pages::register')
+        ->set('firstName', 'Ada')
+        ->set('lastName', 'Lovelace')
+        ->set('email', 'ada@example.com')
+        ->set('marketingOptIn', false)
+        ->call('register')
+        ->assertHasNoErrors();
+
+    Queue::assertNotPushed(SubscribeParticipantToEmailList::class);
 });
 
 test('a participant can register during a scheduled show', function () {
