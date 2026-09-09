@@ -159,7 +159,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                 'elapsed_ms' => $elapsedMs,
                 'submitted_at' => now(),
             ]);
-        });
+        }, attempts: 5);
 
         $this->submittedAnswer = '';
         unset($this->contestant);
