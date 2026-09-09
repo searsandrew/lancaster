@@ -169,6 +169,29 @@ new #[Title('Configure show')] class extends Component {
         $this->refreshQuestions();
     }
 
+    public function clearPerfectScoreImage(): void
+    {
+        if ($this->perfectScoreImage) {
+            $this->perfectScoreImage = null;
+            $this->resetValidation('perfectScoreImage');
+
+            return;
+        }
+
+        $quiz = $this->show->quiz;
+        $perfectScoreImagePath = $quiz->perfect_score_image_path;
+
+        if (! $perfectScoreImagePath) {
+            return;
+        }
+
+        $quiz->update(['perfect_score_image_path' => null]);
+        Storage::disk('public')->delete($perfectScoreImagePath);
+        $this->show->setRelation('quiz', $quiz->fresh());
+
+        Flux::toast(variant: 'success', text: __('Perfect score image removed.'));
+    }
+
     public function moveQuestion(int $questionId, string $direction): void
     {
         abort_unless(in_array($direction, ['up', 'down'], true), 404);
@@ -364,7 +387,16 @@ new #[Title('Configure show')] class extends Component {
                     <flux:text>{{ __('Optionally upload the sticker or prize artwork shown when someone earns a perfect score.') }}</flux:text>
                 </div>
 
-                @if ($show->quiz->perfect_score_image_path)
+                @if ($perfectScoreImage?->isPreviewable())
+                    <img
+                        src="{{ $perfectScoreImage->temporaryUrl() }}"
+                        alt="{{ __('Selected perfect score artwork preview') }}"
+                        class="max-h-48 rounded-xl border border-zinc-200 object-contain dark:border-zinc-700"
+                    />
+                    <flux:text>{{ __('New image ready to save.') }}</flux:text>
+                @elseif ($perfectScoreImage)
+                    <flux:callout variant="warning">{{ __('The selected file cannot be previewed.') }}</flux:callout>
+                @elseif ($show->quiz->perfect_score_image_path)
                     <img
                         src="{{ Storage::disk('public')->url($show->quiz->perfect_score_image_path) }}"
                         alt="{{ __('Current perfect score artwork') }}"
@@ -372,13 +404,21 @@ new #[Title('Configure show')] class extends Component {
                     />
                 @endif
 
-                <flux:file-upload wire:model="perfectScoreImage" :label="__('Perfect score image')">
-                    <flux:file-upload.dropzone
-                        :heading="__('Drop an image here or click to browse')"
-                        :text="__('JPG, PNG, or WebP up to 5 MB')"
-                        with-progress
-                    />
-                </flux:file-upload>
+                @if ($perfectScoreImage || $show->quiz->perfect_score_image_path)
+                    <div>
+                        <flux:button type="button" variant="danger" size="sm" wire:click="clearPerfectScoreImage">
+                            {{ __('Clear image') }}
+                        </flux:button>
+                    </div>
+                @else
+                    <flux:file-upload wire:model="perfectScoreImage" :label="__('Perfect score image')">
+                        <flux:file-upload.dropzone
+                            :heading="__('Drop a perfect score image here or click to browse')"
+                            :text="__('JPG, PNG, or WebP up to 5 MB')"
+                            with-progress
+                        />
+                    </flux:file-upload>
+                @endif
             </div>
         </flux:card>
 

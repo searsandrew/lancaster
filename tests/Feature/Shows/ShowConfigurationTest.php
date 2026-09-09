@@ -176,6 +176,57 @@ test('staff can upload perfect score artwork for a quiz', function () {
     Storage::disk('public')->assertExists($imagePath);
 });
 
+test('staff see a preview before saving perfect score artwork', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    Quiz::factory()->for($show)->summary()->create();
+    $image = UploadedFile::fake()->image('perfect-score.png', 800, 800);
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('perfectScoreImage', $image)
+        ->assertSeeHtml('alt="Selected perfect score artwork preview"')
+        ->assertSee('New image ready to save.')
+        ->assertSee('Clear image')
+        ->assertDontSee('Drop a perfect score image here or click to browse');
+});
+
+test('staff can clear a pending perfect score image', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    Quiz::factory()->for($show)->summary()->create();
+    $image = UploadedFile::fake()->image('perfect-score.png', 800, 800);
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('perfectScoreImage', $image)
+        ->call('clearPerfectScoreImage')
+        ->assertSet('perfectScoreImage', null)
+        ->assertSee('Drop a perfect score image here or click to browse');
+});
+
+test('staff can remove saved perfect score artwork', function () {
+    Storage::fake('public');
+    Storage::disk('public')->put('perfect-score-images/logo.png', 'image contents');
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->summary()->create([
+        'perfect_score_image_path' => 'perfect-score-images/logo.png',
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->assertSee('Clear image')
+        ->assertDontSee('Drop a perfect score image here or click to browse')
+        ->call('clearPerfectScoreImage')
+        ->assertSee('Drop a perfect score image here or click to browse');
+
+    expect($quiz->fresh()->perfect_score_image_path)->toBeNull();
+    Storage::disk('public')->assertMissing('perfect-score-images/logo.png');
+});
+
 test('staff can upload registration artwork for a quiz', function () {
     Storage::fake('public');
     $user = User::factory()->create();
