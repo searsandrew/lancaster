@@ -235,7 +235,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                                 <flux:textarea wire:model="submittedAnswer" :label="__('Your answer')" rows="3" maxlength="1000" required autofocus />
                             @endif
                             <flux:error name="submittedAnswer" />
-                            <flux:button type="submit" variant="primary" class="w-full" wire:loading.attr="disabled">{{ __('Submit answer') }}</flux:button>
+                            <flux:button type="submit" variant="primary" class="w-full" wire:loading.attr="disabled" wire:target="submitAnswer">{{ __('Submit answer') }}</flux:button>
                         </form>
                     </flux:card>
                 @endif

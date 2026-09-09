@@ -80,6 +80,7 @@ test('a released question accepts a timed phone answer and automatically checks 
 
     Livewire::test('pages::register')
         ->assertSee('What metal is shown?')
+        ->assertSeeHtml('wire:target="submitAnswer"')
         ->assertDontSee('Aluminum')
         ->assertDontSee('Explain that aluminum is lightweight and corrosion resistant.')
         ->set('submittedAnswer', ' aluminum ')
