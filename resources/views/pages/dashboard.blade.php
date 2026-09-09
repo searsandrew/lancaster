@@ -580,7 +580,12 @@ new #[Title('Dashboard')] class extends Component
                                     <flux:text class="mt-1">{{ __('Answered in :seconds seconds', ['seconds' => number_format($currentAnswer->elapsed_ms / 1000, 3)]) }}</flux:text>
                                 </div>
                                 <flux:callout :variant="$currentAnswer->is_correct ? 'success' : 'warning'">
-                                    {{ $currentAnswer->is_correct ? __('Automatically matched the configured answer.') : __('Did not match the configured answer: :answer', ['answer' => $currentQuestion->correct_answer]) }}
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span>{{ $currentAnswer->is_correct ? __('Automatically matched the configured answer.') : __('Did not match the configured answer: :answer', ['answer' => $currentQuestion->correct_answer]) }}</span>
+                                        @if ($currentAnswer->automatic_match_method)
+                                            <flux:badge size="sm">{{ $currentAnswer->automatic_match_method->label() }}</flux:badge>
+                                        @endif
+                                    </div>
                                 </flux:callout>
                                 <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
                                     <flux:button type="button" variant="ghost" wire:click="reviewAnswer({{ $currentAnswer->is_correct ? 'false' : 'true' }})">

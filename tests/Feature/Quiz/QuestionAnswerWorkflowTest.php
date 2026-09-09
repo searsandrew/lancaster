@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\AnswerMatchMethod;
+use App\Enums\QuestionAnswerType;
 use App\Enums\QuizScoringMode;
 use App\Models\Participant;
 use App\Models\Question;
@@ -91,8 +93,79 @@ test('a released question accepts a timed phone answer and automatically checks 
         ->question_id->toBe($question->id)
         ->submitted_answer->toBe('aluminum')
         ->is_correct->toBeTrue()
+        ->automatic_match_method->toBe(AnswerMatchMethod::Exact)
         ->elapsed_ms->toBe(2500)
         ->and($answer->reviewed_at)->toBeNull();
+});
+
+test('approved phrases and conservative spelling are accepted automatically', function (string $submittedAnswer, AnswerMatchMethod $expectedMethod) {
+    $staff = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
+    Question::factory()->for($quiz)->create([
+        'correct_answer' => 'Sold as a four pack',
+        'accepted_answers' => ['four pack'],
+        'position' => 1,
+    ]);
+    $participant = Participant::factory()->for($show)->create();
+
+    Livewire::actingAs($staff)
+        ->test('pages::dashboard')
+        ->call('start', $participant->id)
+        ->call('sendQuestion');
+    session()->put("quiz_participant_{$show->id}", $participant->id);
+
+    Livewire::test('pages::register')
+        ->set('submittedAnswer', $submittedAnswer)
+        ->call('submitAnswer')
+        ->assertHasNoErrors();
+
+    expect(QuizAnswer::query()->sole())
+        ->is_correct->toBeTrue()
+        ->automatic_match_method->toBe($expectedMethod);
+})->with([
+    'accepted phrase and number normalization' => ["It's a 4 pack", AnswerMatchMethod::AcceptedPhrase],
+    'spelling tolerance' => ['four pac', AnswerMatchMethod::Spelling],
+]);
+
+test('a multiple choice question renders its options and accepts only a configured choice', function () {
+    $staff = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
+    Question::factory()->for($quiz)->create([
+        'prompt' => 'How is this product packaged?',
+        'answer_type' => QuestionAnswerType::MultipleChoice,
+        'correct_answer' => 'Four pack',
+        'answer_options' => ['Single item', 'Two pack', 'Four pack'],
+        'position' => 1,
+    ]);
+    $participant = Participant::factory()->for($show)->create();
+
+    Livewire::actingAs($staff)
+        ->test('pages::dashboard')
+        ->call('start', $participant->id)
+        ->call('sendQuestion');
+    session()->put("quiz_participant_{$show->id}", $participant->id);
+
+    $component = Livewire::test('pages::register')
+        ->assertSee('Single item')
+        ->assertSee('Two pack')
+        ->assertSee('Four pack')
+        ->set('submittedAnswer', 'An option that was not sent')
+        ->call('submitAnswer')
+        ->assertHasErrors(['submittedAnswer']);
+
+    expect(QuizAnswer::query()->exists())->toBeFalse();
+
+    $component
+        ->set('submittedAnswer', 'Four pack')
+        ->call('submitAnswer')
+        ->assertHasNoErrors();
+
+    expect(QuizAnswer::query()->sole())
+        ->submitted_answer->toBe('Four pack')
+        ->is_correct->toBeTrue()
+        ->automatic_match_method->toBe(AnswerMatchMethod::Exact);
 });
 
 test('staff can override answers and publish only after every answer is accepted', function () {

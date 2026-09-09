@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\QuizScoringMode;
+use App\Enums\QuestionAnswerType;
 use App\Enums\ShowActivationMode;
 use App\Models\Customer;
 use App\Models\Question;
@@ -43,12 +44,19 @@ new #[Title('Configure show')] class extends Component {
     public string $activeTab = 'quiz';
     public ?int $editingNotesQuestionId = null;
     public string $notesEditorContent = '';
+    public ?int $editingAnswerQuestionId = null;
+    public string $answerEditorType = 'free_text';
+    public string $answerEditorCorrectAnswer = '';
+    public string $answerEditorAcceptedAnswers = '';
+    public string $answerEditorOptions = '';
     /** @var array<int, string> */
     public array $questionPrompts = [];
     /** @var array<int, string> */
     public array $correctAnswers = [];
     /** @var array<int, string> */
     public array $salesNotes = [];
+    /** @var array<int, string> */
+    public array $answerTypes = [];
 
     /** @return Collection<int, Customer> */
     #[Computed]
@@ -150,6 +158,7 @@ new #[Title('Configure show')] class extends Component {
         $this->show->quiz->questions()->create([
             'prompt' => trim($validated['newQuestion']),
             'correct_answer' => trim($validated['newCorrectAnswer'] ?? '') ?: null,
+            'answer_type' => QuestionAnswerType::FreeText,
             'sales_notes' => SafeRichText::sanitize(trim($validated['newSalesNotes'])) ?: null,
             'position' => $position,
         ]);
@@ -269,6 +278,61 @@ new #[Title('Configure show')] class extends Component {
         Flux::toast(variant: 'success', text: __('Sales notes saved.'));
     }
 
+    public function editAnswer(int $questionId): void
+    {
+        $question = $this->question($questionId);
+        $this->editingAnswerQuestionId = $question->id;
+        $this->answerEditorType = $question->answer_type->value;
+        $this->answerEditorCorrectAnswer = $question->correct_answer ?? '';
+        $this->answerEditorAcceptedAnswers = implode("\n", $question->accepted_answers ?? []);
+        $this->answerEditorOptions = implode("\n", $question->answer_options ?? []);
+        $this->resetValidation([
+            'answerEditorType',
+            'answerEditorCorrectAnswer',
+            'answerEditorAcceptedAnswers',
+            'answerEditorOptions',
+        ]);
+
+        Flux::modal('question-answer')->show();
+    }
+
+    public function saveAnswer(): void
+    {
+        $validated = $this->validate([
+            'answerEditorType' => ['required', Rule::enum(QuestionAnswerType::class)],
+            'answerEditorCorrectAnswer' => ['required', 'string', 'max:1000'],
+            'answerEditorAcceptedAnswers' => ['nullable', 'string', 'max:10000'],
+            'answerEditorOptions' => ['nullable', 'string', 'max:10000'],
+        ]);
+        $question = $this->question($this->editingAnswerQuestionId ?? 0);
+        $answerType = QuestionAnswerType::from($validated['answerEditorType']);
+        $acceptedAnswers = $this->answerLines($validated['answerEditorAcceptedAnswers']);
+        $answerOptions = $this->answerLines($validated['answerEditorOptions']);
+
+        if ($answerType === QuestionAnswerType::MultipleChoice && count($answerOptions) < 2) {
+            $this->addError('answerEditorOptions', __('Add at least two answer choices.'));
+
+            return;
+        }
+
+        if ($answerType === QuestionAnswerType::MultipleChoice && ! in_array(trim($validated['answerEditorCorrectAnswer']), $answerOptions, true)) {
+            $this->addError('answerEditorCorrectAnswer', __('Choose the correct answer from the available choices.'));
+
+            return;
+        }
+
+        $question->update([
+            'answer_type' => $answerType,
+            'correct_answer' => trim($validated['answerEditorCorrectAnswer']),
+            'accepted_answers' => $answerType === QuestionAnswerType::FreeText ? $acceptedAnswers ?: null : null,
+            'answer_options' => $answerType === QuestionAnswerType::MultipleChoice ? $answerOptions : null,
+        ]);
+        $this->refreshQuestions();
+
+        Flux::modal('question-answer')->close();
+        Flux::toast(variant: 'success', text: __('Answer settings saved.'));
+    }
+
     /** @return array<string, array<int, mixed>> */
     private function configurationRules(): array
     {
@@ -301,11 +365,23 @@ new #[Title('Configure show')] class extends Component {
         $this->questionPrompts = $this->show->quiz->questions()->pluck('prompt', 'id')->all();
         $this->correctAnswers = $this->show->quiz->questions()->pluck('correct_answer', 'id')->map(fn (?string $answer): string => $answer ?? '')->all();
         $this->salesNotes = $this->show->quiz->questions()->pluck('sales_notes', 'id')->map(fn (?string $notes): string => $notes ?? '')->all();
+        $this->answerTypes = $this->show->quiz->questions()->pluck('answer_type', 'id')->map(fn (QuestionAnswerType $type): string => $type->value)->all();
     }
 
     private function normalizePositions(): void
     {
         $this->show->quiz->questions()->get()->each(fn (Question $question, int $index) => $question->update(['position' => $index + 1]));
+    }
+
+    /** @return array<int, string> */
+    private function answerLines(string $answers): array
+    {
+        return collect(preg_split('/\R/', $answers) ?: [])
+            ->map(fn (string $answer): string => trim($answer))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function dateTime(?string $date, ?string $time): ?Carbon
@@ -380,8 +456,18 @@ new #[Title('Configure show')] class extends Component {
                                             <flux:icon name="bars-3" class="size-5" />
                                         </div>
                                         <flux:input wire:model="questionPrompts.{{ $questionId }}" :label="__('Question')" />
-                                        <flux:input wire:model="correctAnswers.{{ $questionId }}" :label="__('Correct answer')" />
+                                        @if (($answerTypes[$questionId] ?? 'free_text') === 'multiple_choice')
+                                            <div class="flex h-10 items-center gap-2 rounded-lg border border-zinc-200 px-3 text-sm dark:border-white/10">
+                                                <flux:badge color="blue">{{ __('Multiple choice') }}</flux:badge>
+                                                <span class="truncate text-zinc-600 dark:text-zinc-300">{{ $correctAnswers[$questionId] }}</span>
+                                            </div>
+                                        @else
+                                            <flux:input wire:model="correctAnswers.{{ $questionId }}" :label="__('Correct answer')" />
+                                        @endif
                                         <div wire:sort:ignore class="flex flex-wrap gap-2">
+                                            <flux:button type="button" icon="adjustments-horizontal" wire:click="editAnswer({{ $questionId }})">
+                                                {{ __('Answer') }}
+                                            </flux:button>
                                             <flux:button type="button" icon="document-text" wire:click="editNotes({{ $questionId }})">
                                                 {{ __('Notes') }}
                                             </flux:button>
@@ -480,6 +566,57 @@ new #[Title('Configure show')] class extends Component {
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button type="button" variant="ghost">{{ __('Cancel') }}</flux:button></flux:modal.close>
                 <flux:button type="submit" variant="primary" icon="check">{{ __('Save notes') }}</flux:button>
+            </div>
+        </form>
+    </flux:modal>
+
+    <flux:modal name="question-answer" class="md:w-[42rem]">
+        <form wire:submit="saveAnswer" class="space-y-6">
+            <div>
+                <flux:heading size="lg">{{ __('Answer settings') }}</flux:heading>
+                <flux:text>{{ __('Choose how contestants answer and what should count as correct.') }}</flux:text>
+            </div>
+
+            <flux:radio.group wire:model.live="answerEditorType" :label="__('Answer type')" variant="cards" class="grid sm:grid-cols-2">
+                <flux:radio value="free_text" :label="__('Free text')" :description="__('Accept typed answers with controlled fuzzy matching.')" />
+                <flux:radio value="multiple_choice" :label="__('Multiple choice')" :description="__('Contestants select one answer on their phone.')" />
+            </flux:radio.group>
+
+            @if ($answerEditorType === 'multiple_choice')
+                <flux:textarea
+                    wire:model.live.debounce.300ms="answerEditorOptions"
+                    :label="__('Answer choices')"
+                    :description="__('Enter one choice per line. Add at least two.')"
+                    rows="6"
+                />
+                @php($availableAnswerOptions = collect(preg_split('/\R/', $answerEditorOptions) ?: [])->map(fn ($answer) => trim($answer))->filter()->unique())
+                <flux:select wire:model="answerEditorCorrectAnswer" :label="__('Correct answer')">
+                    <flux:select.option value="">{{ __('Choose an answer') }}</flux:select.option>
+                    @foreach ($availableAnswerOptions as $option)
+                        <flux:select.option :value="$option" wire:key="answer-option-{{ md5($option) }}">{{ $option }}</flux:select.option>
+                    @endforeach
+                </flux:select>
+            @else
+                <flux:input wire:model="answerEditorCorrectAnswer" :label="__('Primary correct answer')" />
+                <flux:textarea
+                    wire:model="answerEditorAcceptedAnswers"
+                    :label="__('Additional accepted answers')"
+                    :description="__('Enter one approved alternative per line. Number words, punctuation, capitalization, and leading articles are normalized automatically.')"
+                    rows="5"
+                />
+                <flux:callout icon="sparkles">
+                    {{ __('Longer responses containing an accepted multi-word phrase and conservative spelling mistakes can also match automatically.') }}
+                </flux:callout>
+            @endif
+
+            <flux:error name="answerEditorType" />
+            <flux:error name="answerEditorCorrectAnswer" />
+            <flux:error name="answerEditorAcceptedAnswers" />
+            <flux:error name="answerEditorOptions" />
+
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button type="button" variant="ghost">{{ __('Cancel') }}</flux:button></flux:modal.close>
+                <flux:button type="submit" variant="primary" icon="check">{{ __('Save answer settings') }}</flux:button>
             </div>
         </form>
     </flux:modal>

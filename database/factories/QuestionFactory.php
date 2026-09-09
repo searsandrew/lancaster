@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\QuestionAnswerType;
 use App\Models\Question;
 use App\Models\Quiz;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -22,6 +23,9 @@ class QuestionFactory extends Factory
             'quiz_id' => Quiz::factory(),
             'prompt' => fake()->sentence(),
             'correct_answer' => fake()->word(),
+            'answer_type' => QuestionAnswerType::FreeText,
+            'accepted_answers' => null,
+            'answer_options' => null,
             'sales_notes' => null,
             'position' => fake()->unique()->numberBetween(1, 1000),
         ];

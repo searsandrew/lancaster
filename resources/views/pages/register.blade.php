@@ -1,11 +1,14 @@
 <?php
 
 use App\Enums\QuizScoringMode;
+use App\Enums\AnswerMatchMethod;
+use App\Enums\QuestionAnswerType;
 use App\Jobs\SubscribeParticipantToEmailList;
 use App\Models\Participant;
 use App\Models\Question;
 use App\Models\QuizAnswer;
 use App\Models\Show;
+use App\Services\QuizAnswerMatcher;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
@@ -116,7 +119,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
         $this->recovering = false;
     }
 
-    public function submitAnswer(): void
+    public function submitAnswer(QuizAnswerMatcher $answerMatcher): void
     {
         $participant = $this->contestant;
         $entry = $participant?->quizEntry;
@@ -125,11 +128,22 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
         abort_unless($participant && $entry && $question && $entry->question_released_at && ! $entry->completed_at, 404);
 
         $canonicalQuestion = Question::query()->whereBelongsTo($entry->quiz)->findOrFail($question->id);
-        $validated = $this->validate(['submittedAnswer' => ['required', 'string', 'max:1000']]);
+        $validated = $this->validate([
+            'submittedAnswer' => [
+                'required',
+                'string',
+                'max:1000',
+                Rule::when(
+                    $canonicalQuestion->answer_type === QuestionAnswerType::MultipleChoice,
+                    Rule::in($canonicalQuestion->answer_options ?? []),
+                ),
+            ],
+        ]);
         $answerText = trim($validated['submittedAnswer']);
+        $matchMethod = $answerMatcher->match($canonicalQuestion, $answerText);
         $elapsedMs = max(1, (int) $entry->question_released_at->diffInMilliseconds(now()));
 
-        DB::transaction(function () use ($entry, $canonicalQuestion, $answerText, $elapsedMs): void {
+        DB::transaction(function () use ($entry, $canonicalQuestion, $answerText, $matchMethod, $elapsedMs): void {
             $lockedEntry = $entry->newQuery()->lockForUpdate()->findOrFail($entry->id);
             abort_unless($lockedEntry->current_question_position === $canonicalQuestion->position, 409);
             abort_if($lockedEntry->answers()->where('position', $canonicalQuestion->position)->exists(), 409);
@@ -140,7 +154,8 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                 'question_prompt' => $canonicalQuestion->prompt,
                 'submitted_answer' => $answerText,
                 'position' => $canonicalQuestion->position,
-                'is_correct' => mb_strtolower($answerText) === mb_strtolower(trim($canonicalQuestion->correct_answer ?? '')),
+                'is_correct' => $matchMethod !== AnswerMatchMethod::None,
+                'automatic_match_method' => $matchMethod,
                 'elapsed_ms' => $elapsedMs,
                 'submitted_at' => now(),
             ]);
@@ -161,7 +176,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
 
         return $this->show->participants()
             ->with([
-                'quizEntry.quiz.questions' => fn ($query) => $query->select('id', 'quiz_id', 'prompt', 'position'),
+                'quizEntry.quiz.questions' => fn ($query) => $query->select('id', 'quiz_id', 'prompt', 'answer_type', 'answer_options', 'position'),
                 'quizEntry.answers',
             ])
             ->find($participantId);
@@ -210,7 +225,16 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                         <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :current of :total', ['current' => $question->position, 'total' => $contestant->quizEntry->quiz->questions->count()]) }}</flux:text>
                         <flux:heading size="xl">{{ $question->prompt }}</flux:heading>
                         <form wire:submit="submitAnswer" class="space-y-4">
-                            <flux:textarea wire:model="submittedAnswer" :label="__('Your answer')" rows="3" maxlength="1000" required autofocus />
+                            @if ($question->answer_type === QuestionAnswerType::MultipleChoice)
+                                <flux:radio.group wire:model="submittedAnswer" :label="__('Choose your answer')" variant="cards" class="grid gap-3">
+                                    @foreach ($question->answer_options ?? [] as $option)
+                                        <flux:radio :value="$option" :label="$option" wire:key="choice-{{ $question->id }}-{{ md5($option) }}" />
+                                    @endforeach
+                                </flux:radio.group>
+                            @else
+                                <flux:textarea wire:model="submittedAnswer" :label="__('Your answer')" rows="3" maxlength="1000" required autofocus />
+                            @endif
+                            <flux:error name="submittedAnswer" />
                             <flux:button type="submit" variant="primary" class="w-full" wire:loading.attr="disabled">{{ __('Submit answer') }}</flux:button>
                         </form>
                     </flux:card>

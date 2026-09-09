@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\QuestionAnswerType;
 use App\Enums\QuizScoringMode;
 use App\Enums\ShowActivationMode;
 use App\Models\Customer;
@@ -166,6 +167,73 @@ test('sales notes are limited to the available staff display space', function ()
         ->assertHasErrors(['newSalesNotes']);
 
     expect($show->quiz->questions()->exists())->toBeFalse();
+});
+
+test('staff can configure accepted free text answers', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->create();
+    $question = Question::factory()->for($quiz)->create([
+        'correct_answer' => 'Sold as a four pack',
+        'position' => 1,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->call('editAnswer', $question->id)
+        ->assertSet('answerEditorType', 'free_text')
+        ->set('answerEditorAcceptedAnswers', "four pack\n4 pack\nfour pack")
+        ->call('saveAnswer')
+        ->assertHasNoErrors();
+
+    expect($question->fresh())
+        ->answer_type->toBe(QuestionAnswerType::FreeText)
+        ->accepted_answers->toBe(['four pack', '4 pack'])
+        ->answer_options->toBeNull();
+});
+
+test('staff can configure a multiple choice answer', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->create();
+    $question = Question::factory()->for($quiz)->create(['position' => 1]);
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->call('editAnswer', $question->id)
+        ->set('answerEditorType', 'multiple_choice')
+        ->set('answerEditorOptions', "Single item\nTwo pack\nFour pack")
+        ->set('answerEditorCorrectAnswer', 'Four pack')
+        ->call('saveAnswer')
+        ->assertHasNoErrors();
+
+    expect($question->fresh())
+        ->answer_type->toBe(QuestionAnswerType::MultipleChoice)
+        ->correct_answer->toBe('Four pack')
+        ->answer_options->toBe(['Single item', 'Two pack', 'Four pack'])
+        ->accepted_answers->toBeNull();
+});
+
+test('multiple choice answers require two choices and a correct choice', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->create();
+    $question = Question::factory()->for($quiz)->create(['position' => 1]);
+    $component = Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->call('editAnswer', $question->id)
+        ->set('answerEditorType', 'multiple_choice')
+        ->set('answerEditorOptions', 'Only choice')
+        ->set('answerEditorCorrectAnswer', 'Different choice')
+        ->call('saveAnswer')
+        ->assertHasErrors(['answerEditorOptions']);
+
+    $component
+        ->set('answerEditorOptions', "First choice\nSecond choice")
+        ->call('saveAnswer')
+        ->assertHasErrors(['answerEditorCorrectAnswer']);
+
+    expect($question->fresh()->answer_type)->toBe(QuestionAnswerType::FreeText);
 });
 
 test('staff can reorder quiz questions', function () {
