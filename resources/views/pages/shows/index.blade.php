@@ -187,8 +187,8 @@ new #[Title('Shows')] class extends Component {
             </flux:select>
 
             <flux:radio.group wire:model.live="scoringMode" variant="cards" :label="__('Scoring method')" class="grid lg:grid-cols-3">
-                <flux:radio value="per_answer" :label="__('Per-answer scoring')" :description="__('Staff records whether each answer is correct.')" />
                 <flux:radio value="summary" :label="__('Summary scoring')" :description="__('Staff enters one final score for the attempt.')" />
+                <flux:radio value="per_answer" :label="__('Per-answer scoring')" :description="__('Staff records whether each answer is correct.')" />
                 <flux:radio value="question_answer" :label="__('Question/answer quiz')" :description="__('Contestants answer released questions on their phone.')" />
             </flux:radio.group>
 
