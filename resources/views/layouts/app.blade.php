@@ -11,9 +11,6 @@
                 <flux:navbar.item icon="calendar-days" :href="route('shows.index')" :current="request()->routeIs('shows.*')" wire:navigate>
                     {{ __('Shows') }}
                 </flux:navbar.item>
-                <flux:navbar.item icon="building-office" :href="route('customers.index')" :current="request()->routeIs('customers.*')" wire:navigate>
-                    {{ __('Customers') }}
-                </flux:navbar.item>
             </flux:navbar>
 
             <flux:spacer />
