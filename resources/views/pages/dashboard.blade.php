@@ -9,6 +9,7 @@ use Flux\Flux;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -114,8 +115,14 @@ new #[Title('Dashboard')] class extends Component
         }
 
         $participant = $show->participants()->findOrFail($participantId);
+        $questionIds = $show->quiz->questions
+            ->shuffle()
+            ->take($show->quiz->questions_per_entry ?? $show->quiz->questions->count())
+            ->pluck('id')
+            ->all();
         $entry = $participant->quizEntry()->firstOrCreate([], [
             'quiz_id' => $show->quiz->id,
+            'question_ids' => $show->quiz->questions_per_entry === null ? null : $questionIds,
             'staff_user_id' => auth()->id(),
             'started_at' => now(),
         ]);
@@ -274,7 +281,7 @@ new #[Title('Dashboard')] class extends Component
             return;
         }
 
-        $nextQuestion = $entry->quiz->questions->first(
+        $nextQuestion = $entry->assignedQuestions()->first(
             fn ($question): bool => ! $entry->answers->contains('position', $question->position),
         );
 
@@ -371,7 +378,9 @@ new #[Title('Dashboard')] class extends Component
 
     private function completeQuestionAnswerEntry(QuizEntry $entry): void
     {
-        if ($entry->quiz->questions->isEmpty() || $entry->answers->whereNotNull('reviewed_at')->count() !== $entry->quiz->questions->count()) {
+        $assignedQuestions = $entry->assignedQuestions();
+
+        if ($assignedQuestions->isEmpty() || $entry->answers->whereNotNull('reviewed_at')->count() !== $assignedQuestions->count()) {
             $this->addError('entry', __('Every question must be answered and accepted before publishing.'));
             return;
         }
@@ -560,14 +569,19 @@ new #[Title('Dashboard')] class extends Component
                     @php($currentPosition = $this->entry->current_question_position)
                     @php($currentQuestion = $this->entry->quiz->questions->firstWhere('position', $currentPosition))
                     @php($currentAnswer = $this->entry->answers->firstWhere('position', $currentPosition))
+                    @php($assignedQuestions = $this->entry->assignedQuestions())
+                    @php($currentQuestionNumber = $currentQuestion ? $assignedQuestions->search(fn ($question) => $question->is($currentQuestion)) + 1 : null)
 
                     <div wire:poll.1s class="space-y-5">
                         @if ($currentQuestion && $currentAnswer)
                             <flux:card class="space-y-5 border-amber-300 dark:border-amber-400/30">
                                 <div>
-                                    <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :current of :total', ['current' => $currentQuestion->position, 'total' => $this->entry->quiz->questions->count()]) }}</flux:text>
+                                    <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :current of :total', ['current' => $currentQuestionNumber, 'total' => $assignedQuestions->count()]) }}</flux:text>
                                     <flux:heading>{{ $currentQuestion->prompt }}</flux:heading>
                                 </div>
+                                @if ($currentQuestion->image_path)
+                                    <img src="{{ Storage::disk('public')->url($currentQuestion->image_path) }}" alt="{{ __('Question reference image') }}" class="max-h-80 w-full rounded-xl border border-zinc-200 object-contain dark:border-white/10" />
+                                @endif
                                 @if ($currentQuestion->sales_notes)
                                     <flux:callout icon="chat-bubble-left-right">
                                         <flux:callout.heading>{{ __('Sales notes') }}</flux:callout.heading>
@@ -596,7 +610,10 @@ new #[Title('Dashboard')] class extends Component
                             </flux:card>
                         @elseif ($currentQuestion)
                             <div class="space-y-4">
-                                <flux:callout icon="clock">{{ __('Question :number sent. Waiting for the contestant’s answer…', ['number' => $currentQuestion->position]) }}</flux:callout>
+                                <flux:callout icon="clock">{{ __('Question :number sent. Waiting for the contestant’s answer…', ['number' => $currentQuestionNumber]) }}</flux:callout>
+                                @if ($currentQuestion->image_path)
+                                    <img src="{{ Storage::disk('public')->url($currentQuestion->image_path) }}" alt="{{ __('Question reference image') }}" class="max-h-80 w-full rounded-xl border border-zinc-200 object-contain dark:border-white/10" />
+                                @endif
                                 @if ($currentQuestion->sales_notes)
                                     <flux:callout icon="chat-bubble-left-right">
                                         <flux:callout.heading>{{ __('Sales notes') }}</flux:callout.heading>
@@ -604,7 +621,7 @@ new #[Title('Dashboard')] class extends Component
                                     </flux:callout>
                                 @endif
                             </div>
-                        @elseif ($this->entry->answers->whereNotNull('reviewed_at')->count() < $this->entry->quiz->questions->count())
+                        @elseif ($this->entry->answers->whereNotNull('reviewed_at')->count() < $assignedQuestions->count())
                             <flux:button type="button" variant="primary" icon="paper-airplane" wire:click="sendQuestion">
                                 {{ $this->entry->answers->isEmpty() ? __('Send first question') : __('Send next question') }}
                             </flux:button>

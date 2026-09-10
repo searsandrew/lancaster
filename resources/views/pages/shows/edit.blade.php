@@ -33,6 +33,7 @@ new #[Title('Configure show')] class extends Component {
     public string $scoringMode;
     public ?int $customerId = null;
     public ?int $maximumScore = null;
+    public ?int $questionsPerEntry = null;
     public string $registrationMessage = '';
     public ?TemporaryUploadedFile $registrationImage = null;
     public ?TemporaryUploadedFile $perfectScoreImage = null;
@@ -41,6 +42,7 @@ new #[Title('Configure show')] class extends Component {
     public string $newQuestion = '';
     public string $newCorrectAnswer = '';
     public string $newSalesNotes = '';
+    public ?TemporaryUploadedFile $newQuestionImage = null;
     public string $activeTab = 'quiz';
     public ?int $editingNotesQuestionId = null;
     public string $notesEditorContent = '';
@@ -49,6 +51,8 @@ new #[Title('Configure show')] class extends Component {
     public string $answerEditorCorrectAnswer = '';
     public string $answerEditorAcceptedAnswers = '';
     public string $answerEditorOptions = '';
+    public ?int $editingImageQuestionId = null;
+    public ?TemporaryUploadedFile $questionImage = null;
     /** @var array<int, string> */
     public array $questionPrompts = [];
     /** @var array<int, string> */
@@ -57,6 +61,8 @@ new #[Title('Configure show')] class extends Component {
     public array $salesNotes = [];
     /** @var array<int, string> */
     public array $answerTypes = [];
+    /** @var array<int, string> */
+    public array $questionImagePaths = [];
 
     /** @return Collection<int, Customer> */
     #[Computed]
@@ -78,6 +84,7 @@ new #[Title('Configure show')] class extends Component {
         $this->scoringMode = $show->quiz->scoring_mode->value;
         $this->customerId = $show->quiz->customer_id;
         $this->maximumScore = $show->quiz->maximum_score;
+        $this->questionsPerEntry = $show->quiz->questions_per_entry;
         $this->registrationMessage = $show->quiz->registration_message ?? '';
         $this->leaderboardMessage = $show->quiz->leaderboard_message ?? '';
         $this->advertisementEmbedUrl = $show->quiz->advertisement_embed_url ?? '';
@@ -124,6 +131,7 @@ new #[Title('Configure show')] class extends Component {
                 'customer_id' => $validated['customerId'],
                 'scoring_mode' => $validated['scoringMode'],
                 'maximum_score' => $validated['scoringMode'] === 'summary' ? $validated['maximumScore'] : null,
+                'questions_per_entry' => $validated['scoringMode'] === 'question_answer' ? $validated['questionsPerEntry'] : null,
                 'registration_message' => trim($validated['registrationMessage']) ?: null,
                 'registration_image_path' => $registrationImagePath ?? $this->show->quiz->registration_image_path,
                 'perfect_score_image_path' => $perfectScoreImagePath ?? $this->show->quiz->perfect_score_image_path,
@@ -153,10 +161,13 @@ new #[Title('Configure show')] class extends Component {
             'newQuestion' => ['required', 'string', 'max:1000'],
             'newCorrectAnswer' => [Rule::requiredIf($this->scoringMode === 'question_answer'), 'nullable', 'string', 'max:1000'],
             'newSalesNotes' => ['nullable', 'string', 'max:5000'],
+            'newQuestionImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ]);
+        $imagePath = $this->newQuestionImage?->store('question-images', 'public');
         $position = ((int) $this->show->quiz->questions()->max('position')) + 1;
         $this->show->quiz->questions()->create([
             'prompt' => trim($validated['newQuestion']),
+            'image_path' => $imagePath,
             'correct_answer' => trim($validated['newCorrectAnswer'] ?? '') ?: null,
             'answer_type' => QuestionAnswerType::FreeText,
             'sales_notes' => SafeRichText::sanitize(trim($validated['newSalesNotes'])) ?: null,
@@ -165,6 +176,7 @@ new #[Title('Configure show')] class extends Component {
         $this->newQuestion = '';
         $this->newCorrectAnswer = '';
         $this->newSalesNotes = '';
+        $this->newQuestionImage = null;
         $this->refreshQuestions();
     }
 
@@ -186,7 +198,13 @@ new #[Title('Configure show')] class extends Component {
 
     public function removeQuestion(int $questionId): void
     {
-        $this->question($questionId)->delete();
+        $question = $this->question($questionId);
+        $imagePath = $question->image_path;
+        $question->delete();
+
+        if ($imagePath) {
+            Storage::disk('public')->delete($imagePath);
+        }
         $this->normalizePositions();
         $this->refreshQuestions();
     }
@@ -296,6 +314,51 @@ new #[Title('Configure show')] class extends Component {
         Flux::modal('question-answer')->show();
     }
 
+    public function editQuestionImage(int $questionId): void
+    {
+        $this->editingImageQuestionId = $this->question($questionId)->id;
+        $this->questionImage = null;
+        $this->resetValidation('questionImage');
+
+        Flux::modal('question-image')->show();
+    }
+
+    public function saveQuestionImage(): void
+    {
+        $this->validate([
+            'questionImage' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ]);
+        $question = $this->question($this->editingImageQuestionId ?? 0);
+        $previousImagePath = $question->image_path;
+        $imagePath = $this->questionImage?->store('question-images', 'public');
+        $question->update(['image_path' => $imagePath]);
+
+        if ($previousImagePath) {
+            Storage::disk('public')->delete($previousImagePath);
+        }
+
+        $this->questionImage = null;
+        $this->refreshQuestions();
+        Flux::modal('question-image')->close();
+        Flux::toast(variant: 'success', text: __('Question image saved.'));
+    }
+
+    public function removeQuestionImage(): void
+    {
+        $question = $this->question($this->editingImageQuestionId ?? 0);
+        $imagePath = $question->image_path;
+        $question->update(['image_path' => null]);
+
+        if ($imagePath) {
+            Storage::disk('public')->delete($imagePath);
+        }
+
+        $this->questionImage = null;
+        $this->refreshQuestions();
+        Flux::modal('question-image')->close();
+        Flux::toast(variant: 'success', text: __('Question image removed.'));
+    }
+
     public function saveAnswer(): void
     {
         $validated = $this->validate([
@@ -347,6 +410,12 @@ new #[Title('Configure show')] class extends Component {
             'scoringMode' => ['required', Rule::enum(QuizScoringMode::class)],
             'customerId' => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'maximumScore' => [Rule::requiredIf($this->scoringMode === 'summary'), 'nullable', 'integer', 'min:1', 'max:65535'],
+            'questionsPerEntry' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'max:'.$this->show->quiz->questions()->count(),
+            ],
             'registrationMessage' => ['nullable', 'string', 'max:2000'],
             'registrationImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'perfectScoreImage' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
@@ -366,6 +435,7 @@ new #[Title('Configure show')] class extends Component {
         $this->correctAnswers = $this->show->quiz->questions()->pluck('correct_answer', 'id')->map(fn (?string $answer): string => $answer ?? '')->all();
         $this->salesNotes = $this->show->quiz->questions()->pluck('sales_notes', 'id')->map(fn (?string $notes): string => $notes ?? '')->all();
         $this->answerTypes = $this->show->quiz->questions()->pluck('answer_type', 'id')->map(fn (QuestionAnswerType $type): string => $type->value)->all();
+        $this->questionImagePaths = $this->show->quiz->questions()->pluck('image_path', 'id')->filter()->all();
     }
 
     private function normalizePositions(): void
@@ -445,6 +515,17 @@ new #[Title('Configure show')] class extends Component {
                         @endif
                     @else
                         <div class="space-y-3">
+                            @if ($scoringMode === 'question_answer')
+                                <flux:input
+                                    wire:model="questionsPerEntry"
+                                    type="number"
+                                    min="1"
+                                    :max="count($questionPrompts)"
+                                    :label="__('Questions per contestant')"
+                                    :description="__('Leave blank to send every question. A random set is chosen when each contestant starts.')"
+                                />
+                                <flux:error name="questionsPerEntry" />
+                            @endif
                             <div wire:sort="sortQuestion" class="space-y-2">
                                 @foreach ($questionPrompts as $questionId => $prompt)
                                     <div
@@ -465,6 +546,9 @@ new #[Title('Configure show')] class extends Component {
                                             <flux:input wire:model="correctAnswers.{{ $questionId }}" :label="__('Correct answer')" />
                                         @endif
                                         <div wire:sort:ignore class="flex flex-wrap gap-2">
+                                            <flux:button type="button" icon="photo" wire:click="editQuestionImage({{ $questionId }})">
+                                                {{ isset($questionImagePaths[$questionId]) ? __('Image') : __('Add image') }}
+                                            </flux:button>
                                             <flux:button type="button" icon="adjustments-horizontal" wire:click="editAnswer({{ $questionId }})">
                                                 {{ __('Answer') }}
                                             </flux:button>
@@ -474,6 +558,9 @@ new #[Title('Configure show')] class extends Component {
                                             <flux:button type="button" icon="check" square :tooltip="__('Save question')" wire:click="updateQuestion({{ $questionId }})" />
                                             <flux:button type="button" icon="trash" square variant="danger" :tooltip="__('Remove question')" wire:click="removeQuestion({{ $questionId }})" wire:confirm="{{ __('Remove this question?') }}" />
                                         </div>
+                                        @if (isset($questionImagePaths[$questionId]))
+                                            <img src="{{ Storage::disk('public')->url($questionImagePaths[$questionId]) }}" alt="{{ __('Question image preview') }}" class="max-h-28 w-full rounded-lg border border-zinc-200 object-contain dark:border-white/10 lg:col-start-2 lg:col-span-2" />
+                                        @endif
                                     </div>
                                 @endforeach
                             </div>
@@ -485,10 +572,16 @@ new #[Title('Configure show')] class extends Component {
                                     <flux:button type="button" icon="document-text" wire:click="editNotes">{{ __('Notes') }}</flux:button>
                                     <flux:button type="button" icon="plus" variant="primary" wire:click="addQuestion">{{ __('Add') }}</flux:button>
                                 </div>
+                                <div class="lg:col-span-2">
+                                    <flux:file-upload wire:model="newQuestionImage">
+                                        <flux:file-upload.dropzone :heading="__('Optional question image')" :text="__('JPG, PNG, or WebP up to 5 MB')" with-progress />
+                                    </flux:file-upload>
+                                </div>
                             </div>
                             <flux:error name="newQuestion" />
                             <flux:error name="newCorrectAnswer" />
                             <flux:error name="newSalesNotes" />
+                            <flux:error name="newQuestionImage" />
                         </div>
                     @endif
                 </flux:card>
@@ -566,6 +659,35 @@ new #[Title('Configure show')] class extends Component {
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button type="button" variant="ghost">{{ __('Cancel') }}</flux:button></flux:modal.close>
                 <flux:button type="submit" variant="primary" icon="check">{{ __('Save notes') }}</flux:button>
+            </div>
+        </form>
+    </flux:modal>
+
+    <flux:modal name="question-image" class="md:w-[38rem]">
+        <form wire:submit="saveQuestionImage" class="space-y-6">
+            <div>
+                <flux:heading size="lg">{{ __('Question image') }}</flux:heading>
+                <flux:text>{{ __('This image is sent to the contestant with the question.') }}</flux:text>
+            </div>
+            @if ($questionImage?->isPreviewable())
+                <img src="{{ $questionImage->temporaryUrl() }}" alt="{{ __('Selected question image preview') }}" class="max-h-72 w-full rounded-xl border border-zinc-200 object-contain dark:border-white/10" />
+            @elseif ($editingImageQuestionId && isset($questionImagePaths[$editingImageQuestionId]))
+                <img src="{{ Storage::disk('public')->url($questionImagePaths[$editingImageQuestionId]) }}" alt="{{ __('Current question image') }}" class="max-h-72 w-full rounded-xl border border-zinc-200 object-contain dark:border-white/10" />
+            @endif
+            <flux:file-upload wire:model="questionImage">
+                <flux:file-upload.dropzone :heading="__('Drop an image or browse')" :text="__('JPG, PNG, or WebP up to 5 MB')" with-progress />
+            </flux:file-upload>
+            <flux:error name="questionImage" />
+            <div class="flex justify-between gap-2">
+                @if ($editingImageQuestionId && isset($questionImagePaths[$editingImageQuestionId]))
+                    <flux:button type="button" variant="danger" icon="trash" wire:click="removeQuestionImage" wire:confirm="{{ __('Remove this question image?') }}">{{ __('Remove image') }}</flux:button>
+                @else
+                    <span></span>
+                @endif
+                <div class="flex gap-2">
+                    <flux:modal.close><flux:button type="button" variant="ghost">{{ __('Cancel') }}</flux:button></flux:modal.close>
+                    <flux:button type="submit" variant="primary" icon="check">{{ __('Save image') }}</flux:button>
+                </div>
             </div>
         </form>
     </flux:modal>

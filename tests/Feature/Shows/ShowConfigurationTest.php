@@ -154,6 +154,47 @@ test('staff can add update and remove quiz questions', function () {
     expect($question->fresh())->toBeNull();
 });
 
+test('staff can add an image to a quiz question', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->create();
+    $question = Question::factory()->for($quiz)->create(['position' => 1]);
+    $image = UploadedFile::fake()->image('part.png', 1200, 800);
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->call('editQuestionImage', $question->id)
+        ->set('questionImage', $image)
+        ->call('saveQuestionImage')
+        ->assertHasNoErrors();
+
+    $imagePath = $question->fresh()->image_path;
+
+    expect($imagePath)->toStartWith('question-images/');
+    Storage::disk('public')->assertExists($imagePath);
+});
+
+test('question selection count cannot exceed the configured question pool', function () {
+    $user = User::factory()->create();
+    $show = Show::factory()->create();
+    $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
+    Question::factory()->count(5)->for($quiz)->sequence(
+        fn ($sequence) => ['position' => $sequence->index + 1],
+    )->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::shows.edit', ['show' => $show])
+        ->set('questionsPerEntry', 6)
+        ->call('save')
+        ->assertHasErrors(['questionsPerEntry'])
+        ->set('questionsPerEntry', 3)
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($quiz->fresh()->questions_per_entry)->toBe(3);
+});
+
 test('sales notes are limited to the available staff display space', function () {
     $user = User::factory()->create();
     $show = Show::factory()->create();

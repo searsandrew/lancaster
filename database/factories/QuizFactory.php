@@ -25,6 +25,7 @@ class QuizFactory extends Factory
             'customer_id' => null,
             'scoring_mode' => QuizScoringMode::PerAnswer,
             'maximum_score' => null,
+            'questions_per_entry' => null,
             'leaderboard_display_mode' => LeaderboardDisplayMode::Leaderboard,
             'confetti_flash_sequence' => 0,
             'perfect_score_flash_sequence' => 0,

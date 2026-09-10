@@ -22,6 +22,7 @@ class QuestionFactory extends Factory
         return [
             'quiz_id' => Quiz::factory(),
             'prompt' => fake()->sentence(),
+            'image_path' => null,
             'correct_answer' => fake()->word(),
             'answer_type' => QuestionAnswerType::FreeText,
             'accepted_answers' => null,

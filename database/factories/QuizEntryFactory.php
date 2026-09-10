@@ -23,6 +23,7 @@ class QuizEntryFactory extends Factory
         return [
             'participant_id' => Participant::factory(),
             'quiz_id' => Quiz::factory(),
+            'question_ids' => null,
             'staff_user_id' => User::factory(),
             'score' => null,
             'elapsed_ms' => null,

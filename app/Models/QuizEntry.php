@@ -8,8 +8,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
-#[Fillable(['participant_id', 'quiz_id', 'staff_user_id', 'score', 'elapsed_ms', 'started_at', 'completed_at', 'current_question_position', 'question_released_at'])]
+#[Fillable(['participant_id', 'quiz_id', 'question_ids', 'staff_user_id', 'score', 'elapsed_ms', 'started_at', 'completed_at', 'current_question_position', 'question_released_at'])]
 class QuizEntry extends Model
 {
     /** @use HasFactory<QuizEntryFactory> */
@@ -39,12 +40,29 @@ class QuizEntry extends Model
         return $this->hasMany(QuizAnswer::class)->orderBy('position');
     }
 
+    /** @return Collection<int, Question> */
+    public function assignedQuestions(): Collection
+    {
+        $questions = $this->quiz->questions;
+        $questionIds = $this->getAttribute('question_ids');
+
+        if (! is_array($questionIds)) {
+            return $questions;
+        }
+
+        return collect($questionIds)
+            ->map(fn (mixed $questionId): ?Question => $questions->firstWhere('id', (int) $questionId))
+            ->filter()
+            ->values();
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {
         return [
             'score' => 'integer',
             'elapsed_ms' => 'integer',
+            'question_ids' => 'array',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
             'current_question_position' => 'integer',

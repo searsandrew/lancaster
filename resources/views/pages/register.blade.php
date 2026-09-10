@@ -128,6 +128,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
         abort_unless($participant && $entry && $question && $entry->question_released_at && ! $entry->completed_at, 404);
 
         $canonicalQuestion = Question::query()->whereBelongsTo($entry->quiz)->findOrFail($question->id);
+        abort_unless($entry->assignedQuestions()->contains('id', $canonicalQuestion->id), 404);
         $validated = $this->validate([
             'submittedAnswer' => [
                 'required',
@@ -176,7 +177,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
 
         return $this->show->participants()
             ->with([
-                'quizEntry.quiz.questions' => fn ($query) => $query->select('id', 'quiz_id', 'prompt', 'answer_type', 'answer_options', 'position'),
+                'quizEntry.quiz.questions' => fn ($query) => $query->select('id', 'quiz_id', 'prompt', 'image_path', 'answer_type', 'answer_options', 'position'),
                 'quizEntry.answers',
             ])
             ->find($participantId);
@@ -218,12 +219,17 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
             @elseif ($contestant?->quizEntry?->current_question_position)
                 @php($question = $contestant->quizEntry->quiz->questions->firstWhere('position', $contestant->quizEntry->current_question_position))
                 @php($answer = $contestant->quizEntry->answers->firstWhere('position', $contestant->quizEntry->current_question_position))
+                @php($assignedQuestions = $contestant->quizEntry->assignedQuestions())
+                @php($currentQuestionNumber = $question ? $assignedQuestions->search(fn ($assignedQuestion) => $assignedQuestion->is($question)) + 1 : null)
                 @if ($answer)
                     <flux:callout icon="clock">{{ __('Answer received. Waiting for staff to accept it.') }}</flux:callout>
                 @elseif ($question)
                     <flux:card class="space-y-5 text-left">
-                        <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :current of :total', ['current' => $question->position, 'total' => $contestant->quizEntry->quiz->questions->count()]) }}</flux:text>
+                        <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :current of :total', ['current' => $currentQuestionNumber, 'total' => $assignedQuestions->count()]) }}</flux:text>
                         <flux:heading size="xl">{{ $question->prompt }}</flux:heading>
+                        @if ($question->image_path)
+                            <img src="{{ Storage::disk('public')->url($question->image_path) }}" alt="{{ __('Question reference image') }}" class="max-h-96 w-full rounded-xl border border-zinc-200 object-contain dark:border-white/10" />
+                        @endif
                         <form wire:submit="submitAnswer" class="space-y-4">
                             @if ($question->answer_type === QuestionAnswerType::MultipleChoice)
                                 <flux:radio.group wire:model="submittedAnswer" :label="__('Choose your answer')" variant="cards" class="grid gap-3">

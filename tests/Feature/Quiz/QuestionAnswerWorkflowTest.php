@@ -9,6 +9,7 @@ use App\Models\Quiz;
 use App\Models\QuizAnswer;
 use App\Models\Show;
 use App\Models\User;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 test('question answer mode requires canonical answers for every question', function () {
@@ -97,6 +98,59 @@ test('a released question accepts a timed phone answer and automatically checks 
         ->automatic_match_method->toBe(AnswerMatchMethod::Exact)
         ->elapsed_ms->toBe(2500)
         ->and($answer->reviewed_at)->toBeNull();
+});
+
+test('a question image is sent to the contestant device', function () {
+    Storage::fake('public');
+    $staff = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
+    Question::factory()->for($quiz)->create([
+        'prompt' => 'Identify this part',
+        'image_path' => 'question-images/reference.png',
+        'position' => 1,
+    ]);
+    Storage::disk('public')->put('question-images/reference.png', 'image contents');
+    $participant = Participant::factory()->for($show)->create();
+
+    Livewire::actingAs($staff)
+        ->test('pages::dashboard')
+        ->call('start', $participant->id)
+        ->call('sendQuestion');
+    session()->put("quiz_participant_{$show->id}", $participant->id);
+
+    Livewire::test('pages::register')
+        ->assertSee('Identify this part')
+        ->assertSee('question-images/reference.png');
+});
+
+test('each contestant keeps a random subset of the configured question pool', function () {
+    $staff = User::factory()->create();
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->create([
+        'scoring_mode' => QuizScoringMode::QuestionAnswer,
+        'questions_per_entry' => 5,
+    ]);
+    $questions = Question::factory()->count(15)->for($quiz)->sequence(
+        fn ($sequence) => ['position' => $sequence->index + 1],
+    )->create();
+    $participant = Participant::factory()->for($show)->create();
+
+    $component = Livewire::actingAs($staff)
+        ->test('pages::dashboard')
+        ->call('start', $participant->id)
+        ->assertHasNoErrors();
+
+    $assignedQuestionIds = $participant->quizEntry->fresh()->question_ids;
+
+    expect($assignedQuestionIds)
+        ->toHaveCount(5)
+        ->each->toBeIn($questions->modelKeys())
+        ->and(array_unique($assignedQuestionIds))->toHaveCount(5);
+
+    $component->call('cancel')->call('start', $participant->id);
+
+    expect($participant->quizEntry->fresh()->question_ids)->toBe($assignedQuestionIds);
 });
 
 test('approved phrases and conservative spelling are accepted automatically', function (string $submittedAnswer, AnswerMatchMethod $expectedMethod) {
