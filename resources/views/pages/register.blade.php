@@ -119,7 +119,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
         $this->recovering = false;
     }
 
-    public function submitAnswer(QuizAnswerMatcher $answerMatcher): void
+    public function submitAnswer(QuizAnswerMatcher $answerMatcher, int $attemptNumber = 1): void
     {
         $participant = $this->contestant;
         $entry = $participant?->quizEntry;
@@ -144,12 +144,16 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
         $matchMethod = $answerMatcher->match($canonicalQuestion, $answerText);
         $elapsedMs = max(1, (int) $entry->question_released_at->diffInMilliseconds(now()));
 
-        DB::transaction(function () use ($entry, $canonicalQuestion, $answerText, $matchMethod, $elapsedMs): void {
+        DB::transaction(function () use ($entry, $canonicalQuestion, $answerText, $matchMethod, $elapsedMs, $attemptNumber): void {
             $lockedEntry = $entry->newQuery()->lockForUpdate()->findOrFail($entry->id);
-            abort_unless($lockedEntry->current_question_position === $canonicalQuestion->position, 409);
-            abort_if($lockedEntry->answers()->where('position', $canonicalQuestion->position)->exists(), 409);
+            abort_unless(! $lockedEntry->completed_at && $lockedEntry->question_released_at
+                && $lockedEntry->current_question_position === $canonicalQuestion->position, 409);
+            $previousAnswer = $lockedEntry->answers()->where('position', $canonicalQuestion->position)->first();
+            abort_unless($attemptNumber === ($previousAnswer?->attempt_count ?? 0) + 1, 409);
+            abort_if($previousAnswer && ! $previousAnswer->canRetry($lockedEntry->quiz), 409);
 
-            QuizAnswer::query()->create([
+            $answer = $previousAnswer ?? new QuizAnswer;
+            $answer->fill([
                 'quiz_entry_id' => $lockedEntry->id,
                 'question_id' => $canonicalQuestion->id,
                 'question_prompt' => $canonicalQuestion->prompt,
@@ -159,7 +163,8 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                 'automatic_match_method' => $matchMethod,
                 'elapsed_ms' => $elapsedMs,
                 'submitted_at' => now(),
-            ]);
+                'attempt_count' => $attemptNumber,
+            ])->save();
         }, attempts: 5);
 
         $this->submittedAnswer = '';
@@ -214,7 +219,11 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                 @php($answer = $contestant->quizEntry->answers->firstWhere('position', $contestant->quizEntry->current_question_position))
                 @php($assignedQuestions = $contestant->quizEntry->assignedQuestions())
                 @php($currentQuestionNumber = $question ? $assignedQuestions->search(fn ($assignedQuestion) => $assignedQuestion->is($question)) + 1 : null)
-                @if ($answer)
+                @php($canRetry = $answer?->canRetry($contestant->quizEntry->quiz) ?? false)
+                @if ($answer && $question?->answer_type === QuestionAnswerType::MultipleChoice && $contestant->quizEntry->quiz->show_answer_feedback)
+                    <flux:callout :variant="$answer->is_correct ? 'success' : 'warning'">{{ $answer->is_correct ? __('Correct answer!') : __('Incorrect answer.') }}</flux:callout>
+                @endif
+                @if ($answer && ! $canRetry)
                     <flux:callout icon="clock">{{ __('Answer received. Waiting for staff to accept it.') }}</flux:callout>
                 @elseif ($question)
                     <flux:card class="space-y-5 text-left">
@@ -223,7 +232,10 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                         @if ($question->image_path)
                             <img src="{{ Storage::disk('public')->url($question->image_path) }}" alt="{{ __('Question reference image') }}" class="max-h-96 w-full rounded-xl border border-zinc-200 object-contain dark:border-white/10" />
                         @endif
-                        <form wire:submit="submitAnswer" class="space-y-4">
+                        @if ($canRetry)
+                            <flux:callout variant="warning">{{ __('Try again. Extra attempts remaining: :count.', ['count' => $contestant->quizEntry->quiz->second_chance_attempts - $answer->attempt_count + 1]) }}</flux:callout>
+                        @endif
+                        <form wire:submit="submitAnswer({{ ($answer?->attempt_count ?? 0) + 1 }})" class="space-y-4" wire:key="answer-form-{{ $question->id }}-{{ $answer?->attempt_count ?? 0 }}">
                             @if ($question->answer_type === QuestionAnswerType::MultipleChoice)
                                 <flux:radio.group wire:model="submittedAnswer" :label="__('Choose your answer')" variant="cards" class="grid gap-3">
                                     @foreach ($question->answer_options ?? [] as $option)

@@ -34,6 +34,9 @@ new #[Title('Configure show')] class extends Component {
     public ?int $customerId = null;
     public ?int $maximumScore = null;
     public ?int $questionsPerEntry = null;
+    public bool $showAnswerFeedback = false;
+    public bool $secondChanceEnabled = false;
+    public ?int $secondChanceAttempts = null;
     public string $registrationMessage = '';
     public ?TemporaryUploadedFile $registrationImage = null;
     public ?TemporaryUploadedFile $perfectScoreImage = null;
@@ -85,6 +88,9 @@ new #[Title('Configure show')] class extends Component {
         $this->customerId = $show->quiz->customer_id;
         $this->maximumScore = $show->quiz->maximum_score;
         $this->questionsPerEntry = $show->quiz->questions_per_entry;
+        $this->showAnswerFeedback = $show->quiz->show_answer_feedback;
+        $this->secondChanceEnabled = $show->quiz->second_chance_attempts > 0;
+        $this->secondChanceAttempts = $show->quiz->second_chance_attempts ?: 1;
         $this->registrationMessage = $show->quiz->registration_message ?? '';
         $this->leaderboardMessage = $show->quiz->leaderboard_message ?? '';
         $this->advertisementEmbedUrl = $show->quiz->advertisement_embed_url ?? '';
@@ -132,6 +138,11 @@ new #[Title('Configure show')] class extends Component {
                 'scoring_mode' => $validated['scoringMode'],
                 'maximum_score' => $validated['scoringMode'] === 'summary' ? $validated['maximumScore'] : null,
                 'questions_per_entry' => $validated['scoringMode'] === 'question_answer' ? $validated['questionsPerEntry'] : null,
+                'show_answer_feedback' => $validated['scoringMode'] === 'question_answer'
+                    && $this->show->quiz->questions()->where('answer_type', QuestionAnswerType::MultipleChoice)->exists()
+                    && $validated['showAnswerFeedback'],
+                'second_chance_attempts' => $validated['scoringMode'] === 'question_answer' && $validated['secondChanceEnabled']
+                    ? $validated['secondChanceAttempts'] : 0,
                 'registration_message' => trim($validated['registrationMessage']) ?: null,
                 'registration_image_path' => $registrationImagePath ?? $this->show->quiz->registration_image_path,
                 'perfect_score_image_path' => $perfectScoreImagePath ?? $this->show->quiz->perfect_score_image_path,
@@ -408,6 +419,12 @@ new #[Title('Configure show')] class extends Component {
             'endDate' => [Rule::requiredIf($this->activationMode === 'scheduled'), 'nullable', 'date_format:Y-m-d'],
             'endTime' => [Rule::requiredIf($this->activationMode === 'scheduled'), 'nullable', 'date_format:H:i'],
             'scoringMode' => ['required', Rule::enum(QuizScoringMode::class)],
+            'showAnswerFeedback' => ['boolean'],
+            'secondChanceEnabled' => ['boolean'],
+            'secondChanceAttempts' => [
+                Rule::excludeIf($this->scoringMode !== 'question_answer' || ! $this->secondChanceEnabled),
+                'required', 'integer', 'min:1', 'max:100',
+            ],
             'customerId' => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'maximumScore' => [Rule::requiredIf($this->scoringMode === 'summary'), 'nullable', 'integer', 'min:1', 'max:65535'],
             'questionsPerEntry' => [
@@ -525,6 +542,13 @@ new #[Title('Configure show')] class extends Component {
                                     :description="__('Leave blank to send every question. A random set is chosen when each contestant starts.')"
                                 />
                                 <flux:error name="questionsPerEntry" />
+                                @if (in_array('multiple_choice', $answerTypes, true))
+                                    <flux:switch wire:model="showAnswerFeedback" :label="__('Show answer results')" :description="__('Tell contestants whether their multiple-choice answer is correct or incorrect.')" />
+                                @endif
+                                <flux:switch wire:model.live="secondChanceEnabled" :label="__('Second chance')" :description="__('Let contestants retry incorrect answers before staff review. Retry time counts toward their result.')" />
+                                @if ($secondChanceEnabled)
+                                    <flux:input wire:model="secondChanceAttempts" type="number" min="1" max="100" :label="__('Extra attempts per question')" :description="__('For example, 1 allows the original answer plus one more try. A retry prompt appears even when answer results are hidden.')" />
+                                @endif
                             @endif
                             <div wire:sort="sortQuestion" class="space-y-2">
                                 @foreach ($questionPrompts as $questionId => $prompt)

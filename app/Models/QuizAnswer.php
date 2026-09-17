@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['quiz_entry_id', 'question_id', 'question_prompt', 'submitted_answer', 'position', 'is_correct', 'automatic_match_method', 'elapsed_ms', 'submitted_at', 'reviewed_at'])]
+#[Fillable(['quiz_entry_id', 'question_id', 'question_prompt', 'submitted_answer', 'position', 'is_correct', 'automatic_match_method', 'elapsed_ms', 'submitted_at', 'reviewed_at', 'attempt_count'])]
 class QuizAnswer extends Model
 {
     /** @use HasFactory<QuizAnswerFactory> */
@@ -27,11 +27,19 @@ class QuizAnswer extends Model
         return $this->belongsTo(Question::class);
     }
 
+    public function canRetry(Quiz $quiz): bool
+    {
+        return ! $this->is_correct
+            && ! $this->reviewed_at
+            && $this->attempt_count <= $quiz->second_chance_attempts;
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {
         return [
             'position' => 'integer',
+            'attempt_count' => 'integer',
             'is_correct' => 'boolean',
             'automatic_match_method' => AnswerMatchMethod::class,
             'elapsed_ms' => 'integer',

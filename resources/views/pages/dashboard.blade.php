@@ -303,13 +303,19 @@ new #[Title('Dashboard')] class extends Component
         $entry = $this->entryForActiveShow($this->currentShow());
         abort_unless($entry && $entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer, 404);
 
-        $answer = $entry->answers->firstWhere('position', $entry->current_question_position);
-        abort_unless($answer && ! $answer->reviewed_at, 404);
-        $isCorrect ??= $answer->is_correct;
+        DB::transaction(function () use ($entry, $isCorrect): void {
+            $lockedEntry = $entry->newQuery()->lockForUpdate()->findOrFail($entry->id);
+            abort_if($lockedEntry->completed_at, 409);
+            $answer = $lockedEntry->answers()->where('position', $lockedEntry->current_question_position)->first();
+            abort_unless($answer && ! $answer->reviewed_at, 404);
 
-        DB::transaction(function () use ($entry, $answer, $isCorrect): void {
-            $answer->update(['is_correct' => $isCorrect, 'reviewed_at' => now()]);
-            $entry->update(['current_question_position' => null, 'question_released_at' => null]);
+            if ($isCorrect === null && $answer->canRetry($lockedEntry->quiz)) {
+                $this->addError('entry', __('The contestant has extra attempts remaining. Wait for their next answer or override the result.'));
+                return;
+            }
+
+            $answer->update(['is_correct' => $isCorrect ?? $answer->is_correct, 'reviewed_at' => now()]);
+            $lockedEntry->update(['current_question_position' => null, 'question_released_at' => null]);
         });
 
         unset($this->entry, $this->participants);
@@ -601,11 +607,14 @@ new #[Title('Dashboard')] class extends Component
                                         @endif
                                     </div>
                                 </flux:callout>
+                                @if ($currentAnswer->canRetry($this->entry->quiz))
+                                    <flux:callout icon="clock">{{ __('Waiting for the contestant to try again. Extra attempts remaining: :count.', ['count' => $this->entry->quiz->second_chance_attempts - $currentAnswer->attempt_count + 1]) }}</flux:callout>
+                                @endif
                                 <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
                                     <flux:button type="button" variant="ghost" wire:click="reviewAnswer({{ $currentAnswer->is_correct ? 'false' : 'true' }})">
                                         {{ $currentAnswer->is_correct ? __('Override as incorrect') : __('Override as correct') }}
                                     </flux:button>
-                                    <flux:button type="button" variant="primary" wire:click="reviewAnswer">{{ __('Accept answer') }}</flux:button>
+                                    <flux:button type="button" variant="primary" :disabled="$currentAnswer->canRetry($this->entry->quiz)" wire:click="reviewAnswer">{{ __('Accept answer') }}</flux:button>
                                 </div>
                             </flux:card>
                         @elseif ($currentQuestion)
