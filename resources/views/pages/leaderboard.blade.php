@@ -105,13 +105,7 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
 
         return $this->show->quiz->entries()
             ->with('participant')
-            ->whereNotNull('completed_at')
-            ->whereNotNull('score')
-            ->whereNotNull('elapsed_ms')
-            ->orderByDesc('score')
-            ->orderBy('elapsed_ms')
-            ->orderBy('completed_at')
-            ->orderBy('id')
+            ->ranked()
             ->limit(10)
             ->get();
     }

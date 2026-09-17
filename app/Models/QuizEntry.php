@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Database\Factories\QuizEntryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -38,6 +39,22 @@ class QuizEntry extends Model
     public function answers(): HasMany
     {
         return $this->hasMany(QuizAnswer::class)->orderBy('position');
+    }
+
+    /**
+     * @param  Builder<QuizEntry>  $query
+     * @return Builder<QuizEntry>
+     */
+    public function scopeRanked(Builder $query): Builder
+    {
+        return $query
+            ->whereNotNull('completed_at')
+            ->whereNotNull('score')
+            ->whereNotNull('elapsed_ms')
+            ->orderByDesc('score')
+            ->orderBy('elapsed_ms')
+            ->orderBy('completed_at')
+            ->orderBy('id');
     }
 
     /** @return Collection<int, Question> */

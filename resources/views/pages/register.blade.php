@@ -7,9 +7,11 @@ use App\Jobs\SubscribeParticipantToEmailList;
 use App\Models\Participant;
 use App\Models\Question;
 use App\Models\QuizAnswer;
+use App\Models\QuizEntry;
 use App\Models\Show;
 use App\Services\QuizAnswerMatcher;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
@@ -192,6 +194,21 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
             ->find($participantId);
     }
 
+    /** @return Collection<int, QuizEntry> */
+    #[Computed]
+    public function topEntries(): Collection
+    {
+        if (! $this->show?->quiz || ! $this->show->isActiveAt()) {
+            return new Collection;
+        }
+
+        return $this->show->quiz->entries()
+            ->with('participant:id,first_name,last_name')
+            ->ranked()
+            ->limit(3)
+            ->get();
+    }
+
     private function currentShow(): ?Show
     {
         $activeShows = Show::query()->activeAt()->with('quiz.customer')->limit(2)->get();
@@ -327,6 +344,34 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                 <flux:button type="button" variant="ghost" class="w-full" wire:click="$set('recovering', true)">{{ __('Recover an existing quiz') }}</flux:button>
             @endif
         </form>
+
+        @if ($show->quiz)
+            <flux:card wire:poll.5s class="space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                    <flux:heading size="lg">{{ __('Top 3') }}</flux:heading>
+                    <flux:text class="text-xs">{{ __('Leaderboard') }}</flux:text>
+                </div>
+                @if ($this->topEntries->isEmpty())
+                    <flux:text>{{ __('Be the first on the leaderboard! Complete your quiz at our booth to set the score to beat.') }}</flux:text>
+                @else
+                    <ol class="space-y-3">
+                        @foreach ($this->topEntries as $entry)
+                            <li wire:key="signup-leader-{{ $entry->id }}" class="flex items-center gap-3">
+                                <flux:badge :color="$loop->first ? 'amber' : 'zinc'" size="sm">#{{ $loop->iteration }}</flux:badge>
+                                <div class="min-w-0 flex-1">
+                                    <flux:text class="truncate font-medium">{{ $entry->participant->first_name }} {{ $entry->participant->last_name }}</flux:text>
+                                </div>
+                                <div class="shrink-0 text-right">
+                                    <flux:text class="font-semibold">{{ trans_choice(':count point|:count points', $entry->score, ['count' => $entry->score]) }}</flux:text>
+                                    <flux:text class="text-xs tabular-nums">{{ number_format($entry->elapsed_ms / 1000, 3) }}s</flux:text>
+                                </div>
+                            </li>
+                        @endforeach
+                    </ol>
+                    <flux:text class="text-xs">{{ __('Higher score wins. Fastest time breaks ties.') }}</flux:text>
+                @endif
+            </flux:card>
+        @endif
     @else
         <div class="space-y-6 text-center">
             <flux:heading size="xl">{{ __('Quiz registration') }}</flux:heading>
