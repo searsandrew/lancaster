@@ -81,3 +81,28 @@ test('staff can search the historical participant directory', function () {
         ->assertSee('findable@example.test')
         ->assertDontSee('hidden@example.test');
 });
+
+test('staff can see participant phone numbers in the directory', function (string $view) {
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create();
+    Participant::factory()->for($show)->create(['phone_number' => '+1 (717) 555-0123']);
+    Participant::factory()->for($show)->create(['phone_number' => null]);
+
+    Livewire::actingAs(User::factory()->create())
+        ->test('pages::participants')
+        ->set('view', $view)
+        ->assertSee('Phone number')
+        ->assertSee('+1 (717) 555-0123')
+        ->assertSee('—');
+})->with(['active', 'all']);
+
+test('participant phone numbers are escaped in the staff directory', function () {
+    $show = Show::factory()->active()->create();
+    Quiz::factory()->for($show)->create();
+    Participant::factory()->for($show)->create(['phone_number' => '<script>alert(1)</script>']);
+
+    Livewire::actingAs(User::factory()->create())
+        ->test('pages::participants')
+        ->assertSee('<script>alert(1)</script>')
+        ->assertDontSee('<script>alert(1)</script>', false);
+});

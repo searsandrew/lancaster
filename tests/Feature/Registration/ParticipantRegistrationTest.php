@@ -45,6 +45,7 @@ test('a participant can register for the active show', function () {
         'first_name' => 'Ada',
         'last_name' => 'Lovelace',
         'email' => 'ada@example.com',
+        'phone_number' => null,
         'marketing_opt_in' => false,
     ]);
 });
@@ -199,4 +200,45 @@ test('quiz-specific registration information is escaped', function () {
     Livewire::test('pages::register')
         ->assertSee('<script>alert("registration")</script>')
         ->assertDontSee('<script>alert("registration")</script>', false);
+});
+
+test('registration saves an optional phone number with flexible formatting', function (string $phoneNumber, ?string $storedNumber) {
+    $show = Show::factory()->active()->create();
+
+    Livewire::test('pages::register')
+        ->assertSee('Optional: We will only use your phone number to notify you if you win the drawing')
+        ->set('firstName', 'Ada')
+        ->set('lastName', 'Lovelace')
+        ->set('email', 'ada@example.com')
+        ->set('phoneNumber', $phoneNumber)
+        ->set('marketingOptIn', false)
+        ->call('register')
+        ->assertHasNoErrors()
+        ->assertSet('registered', true);
+
+    $this->assertDatabaseHas(Participant::class, [
+        'show_id' => $show->id,
+        'email' => 'ada@example.com',
+        'phone_number' => $storedNumber,
+        'marketing_opt_in' => false,
+    ]);
+})->with([
+    'US format' => ['  (717) 555-0123  ', '(717) 555-0123'],
+    'international with extension' => ['+44 20 7946 0958 ext. 123', '+44 20 7946 0958 ext. 123'],
+    'whitespace only' => ['   ', null],
+]);
+
+test('an oversized phone number prevents registration', function () {
+    Show::factory()->active()->create();
+
+    Livewire::test('pages::register')
+        ->set('firstName', 'Ada')
+        ->set('lastName', 'Lovelace')
+        ->set('email', 'ada@example.com')
+        ->set('phoneNumber', str_repeat('1', 51))
+        ->call('register')
+        ->assertHasErrors(['phoneNumber' => 'The phone number field must not be greater than 50 characters.'])
+        ->assertSet('registered', false);
+
+    expect(Participant::query()->exists())->toBeFalse();
 });

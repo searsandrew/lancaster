@@ -171,6 +171,7 @@ new #[Title('Participants')] class extends Component
                     class="bg-white dark:bg-zinc-800"
                 >{{ __('Participant') }}</flux:table.column>
                 <flux:table.column sortable :sorted="$sortBy === 'email'" :direction="$sortDirection" wire:click="sort('email')">{{ __('Email') }}</flux:table.column>
+                <flux:table.column>{{ __('Phone number') }}</flux:table.column>
                 @if ($view === 'active')
                     <flux:table.column>{{ __('Email signup') }}</flux:table.column>
                     <flux:table.column>{{ __('Quiz status') }}</flux:table.column>
@@ -188,6 +189,7 @@ new #[Title('Participants')] class extends Component
                             {{ $participant->first_name }} {{ $participant->last_name }}
                         </flux:table.cell>
                         <flux:table.cell>{{ $participant->email }}</flux:table.cell>
+                        <flux:table.cell>{{ $participant->phone_number ?? '—' }}</flux:table.cell>
 
                         @if ($view === 'active')
                             <flux:table.cell>

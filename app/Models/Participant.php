@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['show_id', 'first_name', 'last_name', 'email', 'marketing_opt_in', 'recovery_code'])]
+#[Fillable(['show_id', 'first_name', 'last_name', 'email', 'phone_number', 'marketing_opt_in', 'recovery_code'])]
 class Participant extends Model
 {
     /** @use HasFactory<ParticipantFactory> */

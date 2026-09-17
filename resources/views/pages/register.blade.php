@@ -25,6 +25,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
     public string $firstName = '';
     public string $lastName = '';
     public string $email = '';
+    public string $phoneNumber = '';
     public bool $marketingOptIn = true;
     public bool $registered = false;
     public bool $recovering = false;
@@ -56,6 +57,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
         $this->firstName = trim($this->firstName);
         $this->lastName = trim($this->lastName);
         $this->email = mb_strtolower(trim($this->email));
+        $this->phoneNumber = trim($this->phoneNumber);
 
         $validated = $this->validate([
             'firstName' => ['required', 'string', 'max:255'],
@@ -70,6 +72,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                     fn (Builder $query): Builder => $query->where('show_id', $show->id),
                 ),
             ],
+            'phoneNumber' => ['nullable', 'string', 'max:50'],
             'marketingOptIn' => ['boolean'],
         ]);
 
@@ -77,6 +80,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
             'first_name' => $validated['firstName'],
             'last_name' => $validated['lastName'],
             'email' => $validated['email'],
+            'phone_number' => $validated['phoneNumber'] !== '' ? $validated['phoneNumber'] : null,
             'marketing_opt_in' => $validated['marketingOptIn'],
         ]);
         $participant->refreshRecoveryCode();
@@ -302,6 +306,15 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
             </div>
 
             <flux:input wire:model="email" type="email" :label="__('Email address')" autocomplete="email" required />
+
+            <flux:input
+                wire:model="phoneNumber"
+                type="tel"
+                :label="__('Phone number')"
+                autocomplete="tel"
+                maxlength="50"
+                :description="__('Optional: We will only use your phone number to notify you if you win the drawing')"
+            />
 
             <flux:checkbox wire:model="marketingOptIn" :label="__('Keep me updated by email')" :description="__('You can unsubscribe at any time.')" />
 
