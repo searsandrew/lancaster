@@ -37,7 +37,8 @@ test('a participant can register for the active show', function () {
         ->call('register')
         ->assertHasNoErrors()
         ->assertSet('registered', true)
-        ->assertSee('You’re in, Ada!');
+        ->assertSee('You’re in, Ada!')
+        ->assertSee('Leave this window open and come over to our booth to start your quiz.');
 
     $this->assertDatabaseHas(Participant::class, [
         'show_id' => $show->id,

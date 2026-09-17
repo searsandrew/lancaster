@@ -207,13 +207,6 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                 <flux:text>{{ $show->name }}</flux:text>
             </div>
 
-            @if ($contestant?->recovery_code)
-                <flux:callout icon="key">
-                    <flux:callout.heading>{{ __('Your recovery code') }}</flux:callout.heading>
-                    <flux:callout.text><span class="font-mono text-2xl tracking-[0.3em]">{{ $contestant->recovery_code }}</span></flux:callout.text>
-                </flux:callout>
-            @endif
-
             @if ($contestant?->quizEntry?->completed_at)
                 <flux:callout variant="success" icon="check-circle">{{ __('Quiz complete! Your result is on the leaderboard.') }}</flux:callout>
             @elseif ($contestant?->quizEntry?->current_question_position)
@@ -246,13 +239,13 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                     </flux:card>
                 @endif
             @else
-                <flux:callout icon="clock">{{ $contestant?->quizEntry ? __('Waiting for the next question…') : __('Waiting for the quiz to start…') }}</flux:callout>
+                <flux:callout icon="clock">{{ $contestant?->quizEntry ? __('Waiting for the next question…') : __('Leave this window open and come over to our booth to start your quiz.') }}</flux:callout>
             @endif
         </div>
     @elseif ($registered)
         <div class="space-y-6 text-center">
             <flux:heading size="xl">{{ __('You’re in, :name!', ['name' => $firstName]) }}</flux:heading>
-            <flux:text>{{ __('Head to the quiz table when you’re ready to play.') }}</flux:text>
+            <flux:text>{{ __('Leave this window open and come over to our booth to start your quiz.') }}</flux:text>
             <flux:callout variant="success" icon="check-circle">
                 {{ __('You’re registered for :show.', ['show' => $show->name]) }}
             </flux:callout>

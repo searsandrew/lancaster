@@ -31,15 +31,22 @@ test('registration remembers a phone session and provides recovery by code', fun
     $show = Show::factory()->active()->create();
     Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
 
-    Livewire::test('pages::register')
+    $component = Livewire::test('pages::register')
         ->set('firstName', 'Ada')
         ->set('lastName', 'Lovelace')
         ->set('email', 'ada@example.test')
         ->call('register')
         ->assertHasNoErrors()
-        ->assertSee('Waiting for the quiz to start');
+        ->assertSee('Leave this window open and come over to our booth to start your quiz.')
+        ->assertDontSee('Your recovery code');
 
     $participant = Participant::query()->sole();
+
+    $component->assertDontSee($participant->recovery_code);
+
+    Livewire::test('pages::register')
+        ->assertSee('Leave this window open and come over to our booth to start your quiz.')
+        ->assertDontSee($participant->recovery_code);
 
     expect($participant->recovery_code)->toHaveLength(6)
         ->and(session("quiz_participant_{$show->id}"))->toBe($participant->id);
@@ -52,7 +59,8 @@ test('registration remembers a phone session and provides recovery by code', fun
         ->call('recover')
         ->assertHasNoErrors()
         ->assertSet('registered', true)
-        ->assertSee('Waiting for the quiz to start');
+        ->assertSee('Leave this window open and come over to our booth to start your quiz.')
+        ->assertDontSee('Your recovery code');
 });
 
 test('a released question accepts a timed phone answer and automatically checks it', function () {
