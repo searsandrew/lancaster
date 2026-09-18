@@ -545,7 +545,7 @@ new #[Title('Configure show')] class extends Component {
                                 @if (in_array('multiple_choice', $answerTypes, true))
                                     <flux:switch wire:model="showAnswerFeedback" :label="__('Show answer results')" :description="__('Tell contestants whether their multiple-choice answer is correct or incorrect.')" />
                                 @endif
-                                <flux:switch wire:model.live="secondChanceEnabled" :label="__('Second chance')" :description="__('Let contestants retry incorrect answers before staff review. Retry time counts toward their result.')" />
+                                <flux:switch wire:model.live="secondChanceEnabled" :label="__('Second chance')" :description="__('Let contestants retry incorrect answers before moving on. Retry time counts toward their result.')" />
                                 @if ($secondChanceEnabled)
                                     <flux:input wire:model="secondChanceAttempts" type="number" min="1" max="100" :label="__('Extra attempts per question')" :description="__('For example, 1 allows the original answer plus one more try. A retry prompt appears even when answer results are hidden.')" />
                                 @endif

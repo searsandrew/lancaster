@@ -10,6 +10,7 @@ use App\Models\QuizAnswer;
 use App\Models\QuizEntry;
 use App\Models\Show;
 use App\Services\QuizAnswerMatcher;
+use App\Services\QuizProgression;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
@@ -33,6 +35,8 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
     public bool $recovering = false;
     public string $recoveryCode = '';
     public string $submittedAnswer = '';
+    #[Locked]
+    public ?bool $lastAnswerCorrect = null;
 
     public function mount(): void
     {
@@ -125,13 +129,32 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
         $this->recovering = false;
     }
 
-    public function submitAnswer(QuizAnswerMatcher $answerMatcher, int $attemptNumber = 1): void
+    public function refreshQuiz(QuizProgression $progression): void
+    {
+        $entry = $this->contestant?->quizEntry;
+
+        if (! $entry || $entry->completed_at || $entry->quiz->scoring_mode !== QuizScoringMode::QuestionAnswer) {
+            return;
+        }
+
+        $answer = $entry->answers->firstWhere('position', $entry->current_question_position);
+
+        if ($entry->current_question_position === null || ($answer && ! $answer->canRetry($entry->quiz))) {
+            $progression->advance($entry);
+            unset($this->contestant);
+        }
+    }
+
+    public function submitAnswer(QuizAnswerMatcher $answerMatcher, QuizProgression $progression, int $questionId, int $attemptNumber = 1): void
     {
         $participant = $this->contestant;
         $entry = $participant?->quizEntry;
         $question = $entry?->quiz->questions->firstWhere('position', $entry->current_question_position);
 
-        abort_unless($participant && $entry && $question && $entry->question_released_at && ! $entry->completed_at, 404);
+        abort_unless($participant && $entry && $entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer
+            && $question && $entry->question_released_at && ! $entry->completed_at, 404);
+
+        abort_unless($question->id === $questionId, 409);
 
         $canonicalQuestion = Question::query()->whereBelongsTo($entry->quiz)->findOrFail($question->id);
         abort_unless($entry->assignedQuestions()->contains('id', $canonicalQuestion->id), 404);
@@ -150,7 +173,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
         $matchMethod = $answerMatcher->match($canonicalQuestion, $answerText);
         $elapsedMs = max(1, (int) $entry->question_released_at->diffInMilliseconds(now()));
 
-        DB::transaction(function () use ($entry, $canonicalQuestion, $answerText, $matchMethod, $elapsedMs, $attemptNumber): void {
+        DB::transaction(function () use ($entry, $canonicalQuestion, $answerText, $matchMethod, $elapsedMs, $attemptNumber, $progression): void {
             $lockedEntry = $entry->newQuery()->lockForUpdate()->findOrFail($entry->id);
             abort_unless(! $lockedEntry->completed_at && $lockedEntry->question_released_at
                 && $lockedEntry->current_question_position === $canonicalQuestion->position, 409);
@@ -171,8 +194,12 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                 'submitted_at' => now(),
                 'attempt_count' => $attemptNumber,
             ])->save();
+
+            $progression->advance($lockedEntry);
         }, attempts: 5);
 
+        $this->lastAnswerCorrect = $canonicalQuestion->answer_type === QuestionAnswerType::MultipleChoice && $entry->quiz->show_answer_feedback
+            ? $matchMethod !== AnswerMatchMethod::None : null;
         $this->submittedAnswer = '';
         unset($this->contestant);
     }
@@ -226,12 +253,19 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
 
 <div class="flex flex-col gap-6">
     @if ($registered && $show?->quiz?->scoring_mode === QuizScoringMode::QuestionAnswer)
-        <div wire:poll.1s class="space-y-6 text-center">
+        <div wire:poll.1s="refreshQuiz" class="space-y-6 text-center">
             @php($contestant = $this->contestant)
             <div>
                 <flux:heading size="xl">{{ __('Hi, :name!', ['name' => $contestant?->first_name ?? $firstName]) }}</flux:heading>
                 <flux:text>{{ $show->name }}</flux:text>
             </div>
+
+            @if ($lastAnswerCorrect !== null)
+                <flux:callout :variant="$lastAnswerCorrect ? 'success' : 'warning'">
+                    <flux:callout.heading>{{ __('Your last answer') }}</flux:callout.heading>
+                    <flux:callout.text>{{ $lastAnswerCorrect ? __('Correct answer!') : __('Incorrect answer.') }}</flux:callout.text>
+                </flux:callout>
+            @endif
 
             @if ($contestant?->quizEntry?->completed_at)
                 <flux:callout variant="success" icon="check-circle">{{ __('Quiz complete! Your result is on the leaderboard.') }}</flux:callout>
@@ -241,11 +275,11 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                 @php($assignedQuestions = $contestant->quizEntry->assignedQuestions())
                 @php($currentQuestionNumber = $question ? $assignedQuestions->search(fn ($assignedQuestion) => $assignedQuestion->is($question)) + 1 : null)
                 @php($canRetry = $answer?->canRetry($contestant->quizEntry->quiz) ?? false)
-                @if ($answer && $question?->answer_type === QuestionAnswerType::MultipleChoice && $contestant->quizEntry->quiz->show_answer_feedback)
+                @if ($lastAnswerCorrect === null && $answer && $question?->answer_type === QuestionAnswerType::MultipleChoice && $contestant->quizEntry->quiz->show_answer_feedback)
                     <flux:callout :variant="$answer->is_correct ? 'success' : 'warning'">{{ $answer->is_correct ? __('Correct answer!') : __('Incorrect answer.') }}</flux:callout>
                 @endif
                 @if ($answer && ! $canRetry)
-                    <flux:callout icon="clock">{{ __('Answer received. Waiting for staff to accept it.') }}</flux:callout>
+                    <flux:callout icon="clock">{{ __('Answer received. Loading the next question…') }}</flux:callout>
                 @elseif ($question)
                     <flux:card class="space-y-5 text-left">
                         <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :current of :total', ['current' => $currentQuestionNumber, 'total' => $assignedQuestions->count()]) }}</flux:text>
@@ -256,7 +290,7 @@ new #[Layout('layouts.auth')] #[Title('Join the quiz')] class extends Component
                         @if ($canRetry)
                             <flux:callout variant="warning">{{ __('Try again. Extra attempts remaining: :count.', ['count' => $contestant->quizEntry->quiz->second_chance_attempts - $answer->attempt_count + 1]) }}</flux:callout>
                         @endif
-                        <form wire:submit="submitAnswer({{ ($answer?->attempt_count ?? 0) + 1 }})" class="space-y-4" wire:key="answer-form-{{ $question->id }}-{{ $answer?->attempt_count ?? 0 }}">
+                        <form wire:submit="submitAnswer({{ $question->id }}, {{ ($answer?->attempt_count ?? 0) + 1 }})" class="space-y-4" wire:key="answer-form-{{ $question->id }}-{{ $answer?->attempt_count ?? 0 }}">
                             @if ($question->answer_type === QuestionAnswerType::MultipleChoice)
                                 <flux:radio.group wire:model="submittedAnswer" :label="__('Choose your answer')" variant="cards" class="grid gap-3">
                                     @foreach ($question->answer_options ?? [] as $option)

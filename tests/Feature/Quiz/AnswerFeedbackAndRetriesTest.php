@@ -37,13 +37,13 @@ function createAnswerFeedbackQuiz(int $extraAttempts = 0, bool $feedback = false
 }
 
 test('multiple choice answer feedback follows the quiz setting', function (bool $feedback, string $answer, string $message) {
-    createAnswerFeedbackQuiz(feedback: $feedback);
+    [, $question] = createAnswerFeedbackQuiz(feedback: $feedback);
 
     $component = Livewire::test('pages::register')
         ->set('submittedAnswer', $answer)
-        ->call('submitAnswer')
+        ->call('submitAnswer', $question->id)
         ->assertHasNoErrors()
-        ->assertSee('Answer received. Waiting for staff to accept it.');
+        ->assertSee('Quiz complete!');
 
     if ($feedback) {
         $component->assertSee($message);
@@ -58,24 +58,24 @@ test('multiple choice answer feedback follows the quiz setting', function (bool 
 ]);
 
 test('free text questions do not show multiple choice feedback', function () {
-    createAnswerFeedbackQuiz(feedback: true, answerType: QuestionAnswerType::FreeText);
+    [, $question] = createAnswerFeedbackQuiz(feedback: true, answerType: QuestionAnswerType::FreeText);
 
     Livewire::test('pages::register')
         ->set('submittedAnswer', 'Steel')
-        ->call('submitAnswer')
+        ->call('submitAnswer', $question->id)
         ->assertHasNoErrors()
         ->assertDontSee('Incorrect answer.')
-        ->assertSee('Answer received');
+        ->assertSee('Quiz complete!');
 });
 
 test('an incorrect answer can be retried and total time is included in the published score', function (QuestionAnswerType $answerType) {
     $this->travelTo('2026-09-17 12:00:00');
-    [, , $entry] = createAnswerFeedbackQuiz(extraAttempts: 2, answerType: $answerType);
+    [, $question, $entry] = createAnswerFeedbackQuiz(extraAttempts: 2, answerType: $answerType);
     $this->travel(2)->seconds();
 
     Livewire::test('pages::register')
         ->set('submittedAnswer', 'Steel')
-        ->call('submitAnswer')
+        ->call('submitAnswer', $question->id)
         ->assertHasNoErrors()
         ->assertSee('Try again. Extra attempts remaining: 2.');
 
@@ -84,10 +84,10 @@ test('an incorrect answer can be retried and total time is included in the publi
     Livewire::test('pages::register')
         ->assertSee('Try again. Extra attempts remaining: 2.')
         ->set('submittedAnswer', 'Aluminum')
-        ->call('submitAnswer', 2)
+        ->call('submitAnswer', $question->id, 2)
         ->assertHasNoErrors()
         ->assertDontSee('Try again.')
-        ->assertSee('Answer received');
+        ->assertSee('Quiz complete!');
 
     expect(QuizAnswer::query()->sole())
         ->attempt_count->toBe(2)
@@ -95,41 +95,34 @@ test('an incorrect answer can be retried and total time is included in the publi
         ->submitted_answer->toBe('Aluminum')
         ->elapsed_ms->toBe(5000);
 
-    Livewire::actingAs($entry->staffUser)
-        ->test('pages::dashboard')
-        ->call('start', $entry->participant_id)
-        ->call('reviewAnswer')
-        ->call('complete')
-        ->assertHasNoErrors();
-
     expect($entry->refresh())->score->toBe(1)->elapsed_ms->toBe(5000)->completed_at->not->toBeNull();
 })->with([QuestionAnswerType::MultipleChoice, QuestionAnswerType::FreeText]);
 
 test('extra attempts stop at the configured limit', function () {
-    createAnswerFeedbackQuiz(extraAttempts: 2);
+    [, $question] = createAnswerFeedbackQuiz(extraAttempts: 2);
 
     $component = Livewire::test('pages::register')
-        ->set('submittedAnswer', 'Steel')->call('submitAnswer')
-        ->set('submittedAnswer', 'Copper')->call('submitAnswer', 2)
+        ->set('submittedAnswer', 'Steel')->call('submitAnswer', $question->id)
+        ->set('submittedAnswer', 'Copper')->call('submitAnswer', $question->id, 2)
         ->assertSee('Extra attempts remaining: 1.')
-        ->set('submittedAnswer', 'Steel')->call('submitAnswer', 3)
+        ->set('submittedAnswer', 'Steel')->call('submitAnswer', $question->id, 3)
         ->assertHasNoErrors()
         ->assertDontSee('Try again.')
-        ->assertSee('Answer received');
+        ->assertSee('Quiz complete!');
 
-    $component->set('submittedAnswer', 'Aluminum')->call('submitAnswer', 4)->assertStatus(409);
+    $component->set('submittedAnswer', 'Aluminum')->call('submitAnswer', $question->id, 4)->assertNotFound();
 
     expect(QuizAnswer::query()->sole())->attempt_count->toBe(3)->is_correct->toBeFalse();
 });
 
 test('correct answers and disabled second chances reject additional submissions', function (int $extraAttempts, string $answer) {
-    createAnswerFeedbackQuiz(extraAttempts: $extraAttempts);
+    [, $question] = createAnswerFeedbackQuiz(extraAttempts: $extraAttempts);
 
     Livewire::test('pages::register')
-        ->set('submittedAnswer', $answer)->call('submitAnswer')
+        ->set('submittedAnswer', $answer)->call('submitAnswer', $question->id)
         ->assertDontSee('Try again.')
-        ->set('submittedAnswer', 'Copper')->call('submitAnswer', 2)
-        ->assertStatus(409);
+        ->set('submittedAnswer', 'Copper')->call('submitAnswer', $question->id, 2)
+        ->assertNotFound();
 
     expect(QuizAnswer::query()->sole())->attempt_count->toBe(1)->submitted_answer->toBe($answer);
 })->with([
@@ -138,19 +131,19 @@ test('correct answers and disabled second chances reject additional submissions'
 ]);
 
 test('a stale submission cannot consume a second chance', function () {
-    createAnswerFeedbackQuiz(extraAttempts: 2);
+    [, $question] = createAnswerFeedbackQuiz(extraAttempts: 2);
 
     Livewire::test('pages::register')
-        ->set('submittedAnswer', 'Steel')->call('submitAnswer')
-        ->set('submittedAnswer', 'Copper')->call('submitAnswer')
+        ->set('submittedAnswer', 'Steel')->call('submitAnswer', $question->id)
+        ->set('submittedAnswer', 'Copper')->call('submitAnswer', $question->id)
         ->assertStatus(409);
 
     expect(QuizAnswer::query()->sole())->attempt_count->toBe(1)->submitted_answer->toBe('Steel');
 });
 
 test('staff wait for second chances and can explicitly override the result', function () {
-    [, , $entry] = createAnswerFeedbackQuiz(extraAttempts: 1);
-    Livewire::test('pages::register')->set('submittedAnswer', 'Steel')->call('submitAnswer');
+    [, $question, $entry] = createAnswerFeedbackQuiz(extraAttempts: 1);
+    Livewire::test('pages::register')->set('submittedAnswer', 'Steel')->call('submitAnswer', $question->id);
 
     $component = Livewire::actingAs($entry->staffUser)
         ->test('pages::dashboard')
@@ -164,7 +157,7 @@ test('staff wait for second chances and can explicitly override the result', fun
     $component->call('reviewAnswer', true)->assertHasNoErrors();
     expect(QuizAnswer::query()->sole())->is_correct->toBeTrue()->reviewed_at->not->toBeNull();
 
-    Livewire::test('pages::register')->set('submittedAnswer', 'Aluminum')->call('submitAnswer', 2)->assertNotFound();
+    Livewire::test('pages::register')->set('submittedAnswer', 'Aluminum')->call('submitAnswer', $question->id, 2)->assertNotFound();
 });
 
 test('staff can save feedback and second chance settings', function () {
@@ -234,19 +227,18 @@ test('second chances require a bounded positive number of extra attempts', funct
     'bounded' => [101, 'The second chance attempts field must not be greater than 100.'],
 ]);
 
-test('staff can accept an incorrect answer after extra attempts are exhausted', function () {
-    [, , $entry] = createAnswerFeedbackQuiz(extraAttempts: 1);
+test('an incorrect answer automatically completes the quiz after extra attempts are exhausted', function () {
+    [, $question, $entry] = createAnswerFeedbackQuiz(extraAttempts: 1);
 
     Livewire::test('pages::register')
-        ->set('submittedAnswer', 'Steel')->call('submitAnswer')
-        ->set('submittedAnswer', 'Copper')->call('submitAnswer', 2)
+        ->set('submittedAnswer', 'Steel')->call('submitAnswer', $question->id)
+        ->set('submittedAnswer', 'Copper')->call('submitAnswer', $question->id, 2)
         ->assertHasNoErrors();
 
     Livewire::actingAs($entry->staffUser)->test('pages::dashboard')
-        ->call('start', $entry->participant_id)
+        ->call('editResult', $entry->participant_id)
         ->assertDontSee('Waiting for the contestant to try again.')
-        ->call('reviewAnswer')
-        ->call('complete')
+        ->assertSee('Quiz complete!')
         ->assertHasNoErrors();
 
     expect($entry->refresh())->score->toBe(0)->completed_at->not->toBeNull();
@@ -254,11 +246,11 @@ test('staff can accept an incorrect answer after extra attempts are exhausted', 
 });
 
 test('an invalid retry choice does not use an extra attempt', function () {
-    createAnswerFeedbackQuiz(extraAttempts: 1);
+    [, $question] = createAnswerFeedbackQuiz(extraAttempts: 1);
 
     Livewire::test('pages::register')
-        ->set('submittedAnswer', 'Steel')->call('submitAnswer')
-        ->set('submittedAnswer', 'Not an option')->call('submitAnswer', 2)
+        ->set('submittedAnswer', 'Steel')->call('submitAnswer', $question->id)
+        ->set('submittedAnswer', 'Not an option')->call('submitAnswer', $question->id, 2)
         ->assertHasErrors(['submittedAnswer'])
         ->assertSee('The selected submitted answer is invalid.')
         ->assertSee('Extra attempts remaining: 1.');

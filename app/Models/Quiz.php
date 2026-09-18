@@ -11,6 +11,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property QuizScoringMode $scoring_mode
+ */
 #[Fillable(['show_id', 'customer_id', 'scoring_mode', 'maximum_score', 'questions_per_entry', 'show_answer_feedback', 'second_chance_attempts', 'registration_message', 'registration_image_path', 'perfect_score_image_path', 'leaderboard_message', 'leaderboard_display_mode', 'advertisement_embed_url', 'confetti_flash_sequence', 'perfect_score_flash_sequence'])]
 class Quiz extends Model
 {

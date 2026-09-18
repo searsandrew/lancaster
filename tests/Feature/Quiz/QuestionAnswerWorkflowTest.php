@@ -16,7 +16,7 @@ test('question answer mode requires canonical answers for every question', funct
     $user = User::factory()->create();
     $show = Show::factory()->create();
     $quiz = Quiz::factory()->for($show)->create();
-    Question::factory()->for($quiz)->create(['correct_answer' => null, 'position' => 1]);
+    $question = Question::factory()->for($quiz)->create(['correct_answer' => null, 'position' => 1]);
 
     Livewire::actingAs($user)
         ->test('pages::shows.edit', ['show' => $show])
@@ -79,7 +79,6 @@ test('a released question accepts a timed phone answer and automatically checks 
     Livewire::actingAs($staff)
         ->test('pages::dashboard')
         ->call('start', $participant->id)
-        ->call('sendQuestion')
         ->assertHasNoErrors()
         ->assertSee('Sales notes')
         ->assertSee('Explain that aluminum is lightweight and corrosion resistant.');
@@ -93,9 +92,9 @@ test('a released question accepts a timed phone answer and automatically checks 
         ->assertDontSee('Aluminum')
         ->assertDontSee('Explain that aluminum is lightweight and corrosion resistant.')
         ->set('submittedAnswer', ' aluminum ')
-        ->call('submitAnswer')
+        ->call('submitAnswer', $question->id)
         ->assertHasNoErrors()
-        ->assertSee('Answer received');
+        ->assertSee('Quiz complete!');
 
     $answer = QuizAnswer::query()->sole();
 
@@ -105,7 +104,7 @@ test('a released question accepts a timed phone answer and automatically checks 
         ->is_correct->toBeTrue()
         ->automatic_match_method->toBe(AnswerMatchMethod::Exact)
         ->elapsed_ms->toBe(2500)
-        ->and($answer->reviewed_at)->toBeNull();
+        ->and($answer->reviewed_at)->not->toBeNull();
 });
 
 test('a question image is sent to the contestant device', function () {
@@ -113,7 +112,7 @@ test('a question image is sent to the contestant device', function () {
     $staff = User::factory()->create();
     $show = Show::factory()->active()->create();
     $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
-    Question::factory()->for($quiz)->create([
+    $question = Question::factory()->for($quiz)->create([
         'prompt' => 'Identify this part',
         'image_path' => 'question-images/reference.png',
         'position' => 1,
@@ -123,8 +122,7 @@ test('a question image is sent to the contestant device', function () {
 
     Livewire::actingAs($staff)
         ->test('pages::dashboard')
-        ->call('start', $participant->id)
-        ->call('sendQuestion');
+        ->call('start', $participant->id);
     session()->put("quiz_participant_{$show->id}", $participant->id);
 
     Livewire::test('pages::register')
@@ -165,7 +163,7 @@ test('approved phrases and conservative spelling are accepted automatically', fu
     $staff = User::factory()->create();
     $show = Show::factory()->active()->create();
     $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
-    Question::factory()->for($quiz)->create([
+    $question = Question::factory()->for($quiz)->create([
         'correct_answer' => 'Sold as a four pack',
         'accepted_answers' => ['four pack'],
         'position' => 1,
@@ -174,13 +172,12 @@ test('approved phrases and conservative spelling are accepted automatically', fu
 
     Livewire::actingAs($staff)
         ->test('pages::dashboard')
-        ->call('start', $participant->id)
-        ->call('sendQuestion');
+        ->call('start', $participant->id);
     session()->put("quiz_participant_{$show->id}", $participant->id);
 
     Livewire::test('pages::register')
         ->set('submittedAnswer', $submittedAnswer)
-        ->call('submitAnswer')
+        ->call('submitAnswer', $question->id)
         ->assertHasNoErrors();
 
     expect(QuizAnswer::query()->sole())
@@ -195,7 +192,7 @@ test('a multiple choice question renders its options and accepts only a configur
     $staff = User::factory()->create();
     $show = Show::factory()->active()->create();
     $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
-    Question::factory()->for($quiz)->create([
+    $question = Question::factory()->for($quiz)->create([
         'prompt' => 'How is this product packaged?',
         'answer_type' => QuestionAnswerType::MultipleChoice,
         'correct_answer' => 'Four pack',
@@ -206,8 +203,7 @@ test('a multiple choice question renders its options and accepts only a configur
 
     Livewire::actingAs($staff)
         ->test('pages::dashboard')
-        ->call('start', $participant->id)
-        ->call('sendQuestion');
+        ->call('start', $participant->id);
     session()->put("quiz_participant_{$show->id}", $participant->id);
 
     $component = Livewire::test('pages::register')
@@ -215,14 +211,14 @@ test('a multiple choice question renders its options and accepts only a configur
         ->assertSee('Two pack')
         ->assertSee('Four pack')
         ->set('submittedAnswer', 'An option that was not sent')
-        ->call('submitAnswer')
+        ->call('submitAnswer', $question->id)
         ->assertHasErrors(['submittedAnswer']);
 
     expect(QuizAnswer::query()->exists())->toBeFalse();
 
     $component
         ->set('submittedAnswer', 'Four pack')
-        ->call('submitAnswer')
+        ->call('submitAnswer', $question->id)
         ->assertHasNoErrors();
 
     expect(QuizAnswer::query()->sole())
@@ -231,10 +227,10 @@ test('a multiple choice question renders its options and accepts only a configur
         ->automatic_match_method->toBe(AnswerMatchMethod::Exact);
 });
 
-test('staff can override answers and publish only after every answer is accepted', function () {
+test('staff can override a retrying answer and automatically finish the quiz', function () {
     $staff = User::factory()->create();
     $show = Show::factory()->active()->create();
-    $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer]);
+    $quiz = Quiz::factory()->for($show)->create(['scoring_mode' => QuizScoringMode::QuestionAnswer, 'second_chance_attempts' => 1]);
     $question = Question::factory()->for($quiz)->create(['position' => 1]);
     $participant = Participant::factory()->for($show)->create();
     $entry = $participant->quizEntry()->create([
@@ -261,7 +257,6 @@ test('staff can override answers and publish only after every answer is accepted
 
     $component
         ->call('reviewAnswer', true)
-        ->call('complete')
         ->assertHasNoErrors();
 
     expect($answer->refresh())

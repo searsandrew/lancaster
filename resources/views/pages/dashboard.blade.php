@@ -5,6 +5,7 @@ use App\Enums\LeaderboardDisplayMode;
 use App\Models\Participant;
 use App\Models\QuizEntry;
 use App\Models\Show;
+use App\Services\QuizProgression;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -12,12 +13,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
 new #[Title('Dashboard')] class extends Component
 {
     public ?Show $show = null;
+    /** @var list<int> */
+    #[Locked]
+    public array $monitoredEntryIds = [];
     public string $search = '';
     public ?int $entryId = null;
     public bool $editingCompletedEntry = false;
@@ -37,6 +42,13 @@ new #[Title('Dashboard')] class extends Component
     public function mount(): void
     {
         $this->show = $this->currentShow();
+        $this->monitoredEntryIds = array_values(array_unique(array_merge(
+            session($this->monitoringSessionKey(), []),
+            QuizEntry::query()->where('staff_user_id', auth()->id())
+                ->whereNull('completed_at')
+                ->whereHas('quiz', fn (Builder $query): Builder => $query->where('scoring_mode', QuizScoringMode::QuestionAnswer))
+                ->pluck('id')->all(),
+        )));
         $this->leaderboardDisplayMode = $this->show?->quiz?->leaderboard_display_mode->value
             ?? LeaderboardDisplayMode::Leaderboard->value;
     }
@@ -103,7 +115,7 @@ new #[Title('Dashboard')] class extends Component
         return $this->entryForActiveShow($this->show);
     }
 
-    public function start(int $participantId): void
+    public function start(int $participantId, QuizProgression $progression): void
     {
         $show = $this->currentShow();
 
@@ -111,6 +123,11 @@ new #[Title('Dashboard')] class extends Component
             $this->show = null;
             $this->addError('show', __('There must be exactly one active show to run a quiz.'));
 
+            return;
+        }
+
+        if ($show->quiz->scoring_mode === QuizScoringMode::QuestionAnswer && $show->quiz->questions->isEmpty()) {
+            $this->addError('entry', __('This quiz does not have any questions configured.'));
             return;
         }
 
@@ -132,6 +149,14 @@ new #[Title('Dashboard')] class extends Component
             $this->addError('entry', __('This quiz entry has already been completed.'));
 
             return;
+        }
+
+        $progression->advance($entry);
+        $entry->refresh();
+
+        if ($entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer && $entry->staff_user_id === auth()->id()) {
+            $this->monitoredEntryIds = array_values(array_unique([...$this->monitoredEntryIds, $entry->id]));
+            session()->put($this->monitoringSessionKey(), $this->monitoredEntryIds);
         }
 
         $this->loadEntry($entry, false);
@@ -271,39 +296,44 @@ new #[Title('Dashboard')] class extends Component
         Flux::toast(variant: 'success', text: $wasEditing ? __('Quiz result updated.') : __('Quiz entry completed.'));
     }
 
-    public function sendQuestion(): void
+    public function refreshProgress(): void
     {
-        $entry = $this->entryForActiveShow($this->currentShow());
-        abort_unless($entry && $entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer && ! $entry->completed_at, 404);
+        $entries = QuizEntry::query()
+            ->with('participant')
+            ->whereIn('id', $this->monitoredEntryIds)
+            ->where('staff_user_id', auth()->id())
+            ->whereHas('quiz', fn (Builder $query): Builder => $query->where('scoring_mode', QuizScoringMode::QuestionAnswer))
+            ->get();
 
-        if ($entry->current_question_position !== null) {
-            $this->addError('entry', __('Review the current answer before sending another question.'));
-            return;
+        foreach ($entries->whereNotNull('completed_at') as $completedEntry) {
+            Flux::toast(
+                variant: 'success',
+                heading: __('Quiz complete'),
+                text: __(':name finished the quiz with :result.', [
+                    'name' => $completedEntry->participant->first_name.' '.$completedEntry->participant->last_name,
+                    'result' => trans_choice(':count point|:count points', $completedEntry->score, ['count' => $completedEntry->score]),
+                ]),
+                duration: 10000,
+            );
         }
 
-        $nextQuestion = $entry->assignedQuestions()->first(
-            fn ($question): bool => ! $entry->answers->contains('position', $question->position),
-        );
-
-        if (! $nextQuestion) {
-            $this->addError('entry', __('All questions have already been answered.'));
-            return;
-        }
-
-        $entry->update([
-            'staff_user_id' => auth()->id(),
-            'current_question_position' => $nextQuestion->position,
-            'question_released_at' => now(),
-        ]);
-        unset($this->entry);
+        $this->monitoredEntryIds = $entries->whereNull('completed_at')->modelKeys();
+        session()->put($this->monitoringSessionKey(), $this->monitoredEntryIds);
+        $this->show = $this->currentShow();
+        unset($this->entry, $this->participants);
     }
 
-    public function reviewAnswer(?bool $isCorrect = null): void
+    private function monitoringSessionKey(): string
+    {
+        return 'quiz_monitored_entries.'.auth()->id();
+    }
+
+    public function reviewAnswer(QuizProgression $progression, ?bool $isCorrect = null): void
     {
         $entry = $this->entryForActiveShow($this->currentShow());
         abort_unless($entry && $entry->quiz->scoring_mode === QuizScoringMode::QuestionAnswer, 404);
 
-        DB::transaction(function () use ($entry, $isCorrect): void {
+        DB::transaction(function () use ($entry, $isCorrect, $progression): void {
             $lockedEntry = $entry->newQuery()->lockForUpdate()->findOrFail($entry->id);
             abort_if($lockedEntry->completed_at, 409);
             $answer = $lockedEntry->answers()->where('position', $lockedEntry->current_question_position)->first();
@@ -315,7 +345,7 @@ new #[Title('Dashboard')] class extends Component
             }
 
             $answer->update(['is_correct' => $isCorrect ?? $answer->is_correct, 'reviewed_at' => now()]);
-            $lockedEntry->update(['current_question_position' => null, 'question_released_at' => null]);
+            $progression->advance($lockedEntry);
         });
 
         unset($this->entry, $this->participants);
@@ -464,7 +494,7 @@ new #[Title('Dashboard')] class extends Component
 };
 ?>
 
-<section class="w-full space-y-6">
+<section wire:poll.2s="refreshProgress" class="w-full space-y-6">
     <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
             <flux:heading size="xl">{{ $show ? $show->name : __('No single active show') }}</flux:heading>
@@ -518,7 +548,7 @@ new #[Title('Dashboard')] class extends Component
                     <div class="flex flex-wrap items-center gap-3">
                         <flux:heading size="xl">{{ $this->entry->participant->first_name }} {{ $this->entry->participant->last_name }}</flux:heading>
                         <flux:badge :color="$editingCompletedEntry ? 'amber' : 'blue'" size="sm">
-                            {{ $editingCompletedEntry ? __('Editing completed result') : __('Quiz in progress') }}
+                            {{ $editingCompletedEntry ? __('Editing completed result') : ($this->entry->completed_at ? __('Quiz complete') : __('Quiz in progress')) }}
                         </flux:badge>
                     </div>
                     <flux:text class="mt-1">{{ $this->entry->participant->email }}</flux:text>
@@ -578,7 +608,7 @@ new #[Title('Dashboard')] class extends Component
                     @php($assignedQuestions = $this->entry->assignedQuestions())
                     @php($currentQuestionNumber = $currentQuestion ? $assignedQuestions->search(fn ($question) => $question->is($currentQuestion)) + 1 : null)
 
-                    <div wire:poll.1s class="space-y-5">
+                    <div class="space-y-5">
                         @if ($currentQuestion && $currentAnswer)
                             <flux:card class="space-y-5 border-amber-300 dark:border-amber-400/30">
                                 <div>
@@ -614,7 +644,6 @@ new #[Title('Dashboard')] class extends Component
                                     <flux:button type="button" variant="ghost" wire:click="reviewAnswer({{ $currentAnswer->is_correct ? 'false' : 'true' }})">
                                         {{ $currentAnswer->is_correct ? __('Override as incorrect') : __('Override as correct') }}
                                     </flux:button>
-                                    <flux:button type="button" variant="primary" :disabled="$currentAnswer->canRetry($this->entry->quiz)" wire:click="reviewAnswer">{{ __('Accept answer') }}</flux:button>
                                 </div>
                             </flux:card>
                         @elseif ($currentQuestion)
@@ -630,12 +659,10 @@ new #[Title('Dashboard')] class extends Component
                                     </flux:callout>
                                 @endif
                             </div>
-                        @elseif ($this->entry->answers->whereNotNull('reviewed_at')->count() < $assignedQuestions->count())
-                            <flux:button type="button" variant="primary" icon="paper-airplane" wire:click="sendQuestion">
-                                {{ $this->entry->answers->isEmpty() ? __('Send first question') : __('Send next question') }}
-                            </flux:button>
+                        @elseif ($this->entry->completed_at)
+                            <flux:callout variant="success" icon="check-circle">{{ __('Quiz complete! :result in :seconds seconds. The result is on the leaderboard.', ['result' => trans_choice(':count point|:count points', $this->entry->score, ['count' => $this->entry->score]), 'seconds' => number_format($this->entry->elapsed_ms / 1000, 3)]) }}</flux:callout>
                         @else
-                            <flux:callout variant="success" icon="check-circle">{{ __('All answers are accepted. Complete and publish the result below.') }}</flux:callout>
+                            <flux:callout icon="clock">{{ __('The quiz progresses automatically on the contestant’s device.') }}</flux:callout>
                         @endif
 
                         <div class="grid gap-2 sm:grid-cols-2">
@@ -709,6 +736,7 @@ new #[Title('Dashboard')] class extends Component
                     <flux:button type="button" variant="ghost" wire:click="cancel" wire:loading.attr="disabled" wire:target="complete,cancel">
                         {{ __('Back to queue') }}
                     </flux:button>
+                    @if ($this->entry->quiz->scoring_mode !== QuizScoringMode::QuestionAnswer || $editingCompletedEntry)
                     <flux:button
                         type="submit"
                         variant="primary"
@@ -718,6 +746,7 @@ new #[Title('Dashboard')] class extends Component
                     >
                         {{ $editingCompletedEntry ? __('Save result') : __('Complete and publish') }}
                     </flux:button>
+                    @endif
                 </div>
             </form>
         </flux:card>
@@ -735,7 +764,7 @@ new #[Title('Dashboard')] class extends Component
             <flux:text>{{ trans_choice(':count participant|:count participants', $this->participants->count(), ['count' => $this->participants->count()]) }}</flux:text>
         </div>
 
-        <div wire:poll.5s>
+        <div>
             @if ($this->participants->isEmpty())
                 <flux:card class="text-center">
                     <flux:heading>{{ __('No participants found') }}</flux:heading>
