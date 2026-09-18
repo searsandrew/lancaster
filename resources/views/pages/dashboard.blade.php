@@ -15,6 +15,7 @@ use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 new #[Title('Dashboard')] class extends Component
@@ -25,6 +26,12 @@ new #[Title('Dashboard')] class extends Component
     public array $monitoredEntryIds = [];
     public string $search = '';
     public ?int $entryId = null;
+    #[Url(as: 'result')]
+    public ?int $resultParticipantId = null;
+    /** @var array<int, bool> */
+    public array $resultAnswerCorrect = [];
+    /** @var array<int, string> */
+    public array $resultAnswerSeconds = [];
     public bool $editingCompletedEntry = false;
     public ?int $summaryScore = null;
     public ?string $summarySeconds = null;
@@ -51,6 +58,10 @@ new #[Title('Dashboard')] class extends Component
         )));
         $this->leaderboardDisplayMode = $this->show?->quiz?->leaderboard_display_mode->value
             ?? LeaderboardDisplayMode::Leaderboard->value;
+
+        if ($this->resultParticipantId !== null) {
+            $this->editResult($this->resultParticipantId);
+        }
     }
 
     public function setLeaderboardDisplayMode(string $displayMode): void
@@ -159,6 +170,7 @@ new #[Title('Dashboard')] class extends Component
             session()->put($this->monitoringSessionKey(), $this->monitoredEntryIds);
         }
 
+        $this->resultParticipantId = null;
         $this->loadEntry($entry, false);
     }
 
@@ -168,6 +180,7 @@ new #[Title('Dashboard')] class extends Component
         $entry = $participant->quizEntry()->whereNotNull('completed_at')->firstOrFail();
         $entry->loadMissing('answers');
 
+        $this->resultParticipantId = $participant->id;
         $this->loadEntry($entry, true);
     }
 
@@ -290,8 +303,9 @@ new #[Title('Dashboard')] class extends Component
 
         $wasEditing = $this->editingCompletedEntry;
         $this->entryId = null;
+        $this->resultParticipantId = null;
         $this->editingCompletedEntry = false;
-        $this->reset('summaryScore', 'summarySeconds', 'answerCorrect', 'answerSeconds');
+        $this->reset('summaryScore', 'summarySeconds', 'answerCorrect', 'answerSeconds', 'resultAnswerCorrect', 'resultAnswerSeconds');
         unset($this->participants, $this->entry);
         Flux::toast(variant: 'success', text: $wasEditing ? __('Quiz result updated.') : __('Quiz entry completed.'));
     }
@@ -314,6 +328,7 @@ new #[Title('Dashboard')] class extends Component
                     'result' => trans_choice(':count point|:count points', $completedEntry->score, ['count' => $completedEntry->score]),
                 ]),
                 duration: 10000,
+                link: ['href' => route('dashboard', ['result' => $completedEntry->participant_id]), 'text' => __('View results')],
             );
         }
 
@@ -354,8 +369,9 @@ new #[Title('Dashboard')] class extends Component
     public function cancel(): void
     {
         $this->entryId = null;
+        $this->resultParticipantId = null;
         $this->editingCompletedEntry = false;
-        $this->reset('summaryScore', 'summarySeconds', 'answerCorrect', 'answerSeconds');
+        $this->reset('summaryScore', 'summarySeconds', 'answerCorrect', 'answerSeconds', 'resultAnswerCorrect', 'resultAnswerSeconds');
         $this->resetErrorBag();
         unset($this->entry);
     }
@@ -414,6 +430,35 @@ new #[Title('Dashboard')] class extends Component
 
     private function completeQuestionAnswerEntry(QuizEntry $entry): void
     {
+        if ($this->editingCompletedEntry) {
+            abort_unless($entry->completed_at, 409);
+            $rules = [];
+
+            foreach ($entry->answers as $answer) {
+                $rules["resultAnswerCorrect.{$answer->id}"] = ['required', 'boolean'];
+                $rules["resultAnswerSeconds.{$answer->id}"] = ['required', 'numeric', 'min:0.001', 'max:86400'];
+            }
+
+            $validated = $this->validate($rules);
+
+            DB::transaction(function () use ($entry, $validated): void {
+                $lockedEntry = $entry->newQuery()->lockForUpdate()->findOrFail($entry->id);
+                abort_unless($lockedEntry->completed_at, 409);
+
+                foreach ($entry->answers as $answer) {
+                    $answer->update([
+                        'is_correct' => $validated['resultAnswerCorrect'][$answer->id],
+                        'elapsed_ms' => $this->milliseconds($validated['resultAnswerSeconds'][$answer->id]),
+                    ]);
+                }
+
+                $answers = $lockedEntry->answers()->get();
+                $this->finishEntry($lockedEntry, $answers->where('is_correct', true)->count(), $answers->sum('elapsed_ms'));
+            });
+
+            return;
+        }
+
         $assignedQuestions = $entry->assignedQuestions();
 
         if ($assignedQuestions->isEmpty() || $entry->answers->whereNotNull('reviewed_at')->count() !== $assignedQuestions->count()) {
@@ -447,6 +492,13 @@ new #[Title('Dashboard')] class extends Component
         $this->summarySeconds = $entry->elapsed_ms ? (string) ($entry->elapsed_ms / 1000) : null;
         $this->answerCorrect = [];
         $this->answerSeconds = [];
+        $this->resultAnswerCorrect = [];
+        $this->resultAnswerSeconds = [];
+
+        foreach ($entry->answers as $answer) {
+            $this->resultAnswerCorrect[$answer->id] = $answer->is_correct;
+            $this->resultAnswerSeconds[$answer->id] = (string) ($answer->elapsed_ms / 1000);
+        }
 
         foreach ($entry->quiz->questions as $question) {
             $answer = $entry->answers->firstWhere('question_id', $question->id);
@@ -597,7 +649,7 @@ new #[Title('Dashboard')] class extends Component
                 @if ($errors->any())
                     <flux:callout variant="danger" icon="exclamation-triangle">
                         <flux:callout.heading>{{ __('Check the highlighted quiz details') }}</flux:callout.heading>
-                        <flux:callout.text>{{ __('Nothing has been completed yet. Correct the fields below and try again.') }}</flux:callout.text>
+                        <flux:callout.text>{{ $editingCompletedEntry ? __('Your changes have not been saved. Correct the fields below and try again.') : __('Nothing has been completed yet. Correct the fields below and try again.') }}</flux:callout.text>
                     </flux:callout>
                 @endif
 
@@ -665,12 +717,31 @@ new #[Title('Dashboard')] class extends Component
                             <flux:callout icon="clock">{{ __('The quiz progresses automatically on the contestant’s device.') }}</flux:callout>
                         @endif
 
-                        <div class="grid gap-2 sm:grid-cols-2">
+                        @if ($this->entry->completed_at && ! $editingCompletedEntry)
+                            <flux:button type="button" wire:click="editResult({{ $this->entry->participant_id }})">{{ __('Edit results') }}</flux:button>
+                        @endif
+                        <div class="space-y-4">
                             @foreach ($this->entry->answers->whereNotNull('reviewed_at') as $answer)
-                                <div wire:key="reviewed-answer-{{ $answer->id }}" class="flex items-center justify-between rounded-lg border border-zinc-200 p-3 dark:border-white/10">
-                                    <span>{{ __('Question :number', ['number' => $answer->position]) }} · {{ number_format($answer->elapsed_ms / 1000, 3) }}s</span>
-                                    <flux:badge :color="$answer->is_correct ? 'green' : 'red'">{{ $answer->is_correct ? __('Correct') : __('Incorrect') }}</flux:badge>
-                                </div>
+                                <flux:card wire:key="reviewed-answer-{{ $answer->id }}" class="space-y-3">
+                                    <flux:text class="text-xs font-semibold uppercase tracking-widest">{{ __('Question :number', ['number' => $loop->iteration]) }}</flux:text>
+                                    <flux:heading>{{ $answer->question_prompt }}</flux:heading>
+                                    <div>
+                                        <flux:text class="text-xs">{{ __('Submitted answer') }}</flux:text>
+                                        <flux:text class="whitespace-pre-wrap">{{ $answer->submitted_answer }}</flux:text>
+                                    </div>
+                                    <flux:text class="text-xs">{{ trans_choice(':count attempt|:count attempts', $answer->attempt_count, ['count' => $answer->attempt_count]) }}</flux:text>
+                                    @if ($editingCompletedEntry)
+                                        <div class="grid gap-4 sm:grid-cols-2">
+                                            <flux:checkbox wire:model="resultAnswerCorrect.{{ $answer->id }}" :label="__('Mark as correct')" />
+                                            <flux:input wire:model="resultAnswerSeconds.{{ $answer->id }}" type="number" inputmode="decimal" step="0.001" min="0.001" max="86400" :label="__('Time (seconds)')" required />
+                                        </div>
+                                    @else
+                                        <div class="flex items-center justify-between gap-3">
+                                            <flux:badge :color="$answer->is_correct ? 'green' : 'red'">{{ $answer->is_correct ? __('Correct') : __('Incorrect') }}</flux:badge>
+                                            <flux:text>{{ number_format($answer->elapsed_ms / 1000, 3) }}s</flux:text>
+                                        </div>
+                                    @endif
+                                </flux:card>
                             @endforeach
                         </div>
                     </div>
