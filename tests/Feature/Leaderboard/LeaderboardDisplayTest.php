@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\LeaderboardDisplayMode;
+use App\Enums\QuizScoringMode;
 use App\Models\Participant;
 use App\Models\Question;
 use App\Models\Quiz;
@@ -76,6 +77,27 @@ test('per-answer leaderboards use the question count as the maximum score', func
         ->assertSee('2')
         ->assertSee('/3');
 });
+
+test('question answer leaderboards use the configured contestant question count', function (?int $questionsPerEntry, int $expectedMaximum) {
+    $show = Show::factory()->active()->create();
+    $quiz = Quiz::factory()->for($show)->create([
+        'scoring_mode' => QuizScoringMode::QuestionAnswer,
+        'questions_per_entry' => $questionsPerEntry,
+    ]);
+    Question::factory()->for($quiz)->count(5)->sequence(
+        fn ($sequence) => ['position' => $sequence->index + 1],
+    )->create();
+    $participant = Participant::factory()->for($show)->create();
+    $component = Livewire::test('pages::leaderboard');
+    QuizEntry::factory()->for($quiz)->for($participant)->completed($expectedMaximum)->create();
+
+    $component->call('refreshShow')
+        ->assertSee('/'.$expectedMaximum)
+        ->assertDispatched('perfect-score');
+})->with([
+    'configured subset' => [2, 2],
+    'entire question pool' => [null, 5],
+]);
 
 test('the leaderboard switches when the active show changes', function () {
     $firstShow = Show::factory()->active()->create(['name' => 'First Expo']);

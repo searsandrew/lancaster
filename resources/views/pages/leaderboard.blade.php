@@ -121,7 +121,7 @@ new #[Layout('layouts.display')] #[Title('Leaderboard')] class extends Component
             return $this->show->quiz->maximum_score ?? 0;
         }
 
-        return $this->show->quiz->questions()->count();
+        return $this->show->quiz->questions_per_entry ?? $this->show->quiz->questions()->count();
     }
 
     #[Computed]
